@@ -8,8 +8,8 @@
 // @grant        GM_xmlhttpRequest
 // @connect      www.tradegenius.com
 // @connect      raw.githubusercontent.com
-// @updateURL    https://raw.githubusercontent.com/ShawnChens/GoodGoodStudy/main/trade-automation-v2.user.js
-// @downloadURL  https://raw.githubusercontent.com/ShawnChens/GoodGoodStudy/main/trade-automation-v2.user.js
+// @updateURL    https://raw.githubusercontent.com/SS168-ccs/GoodJob/main/trade-automation-v2.user.js
+// @downloadURL  https://raw.githubusercontent.com/SS168-ccs/GoodJob/main/trade-automation-v2.user.js
 // @run-at       document-idle
 // ==/UserScript==
 
