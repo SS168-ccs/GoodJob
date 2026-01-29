@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genius 现货自动交易
 // @namespace    https://www.tradegenius.com
-// @version      3.11.1
+// @version      3.11.0
 // @description  Genius 现货自动交易 - 支持自定义交易对
 // @author       You
 // @match        https://www.tradegenius.com/*
@@ -19,8 +19,10 @@
     // 防止在 iframe 中重复运行
     if (window.top !== window.self) return;
 
-    // 当前脚本版本（与 @version 保持一致，用于 UI 显示）
-    const SCRIPT_VERSION = '3.11.0';
+    // UI 显示版本：从 Tampermonkey 解析的 @version 读取，只需维护头部 @version 一处
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version)
+        ? GM_info.script.version
+        : '3.11.0';
 
     // ==================== 配置参数 ====================
     const CONFIG = {
