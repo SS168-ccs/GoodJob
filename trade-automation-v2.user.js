@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genius 现货自动交易
 // @namespace    https://www.tradegenius.com
-// @version      3.11.0
+// @version      3.11.1
 // @description  Genius 现货自动交易 - 支持自定义交易对
 // @author       You
 // @match        https://www.tradegenius.com/*
