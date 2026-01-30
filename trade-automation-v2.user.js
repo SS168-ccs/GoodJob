@@ -223,12 +223,12 @@
             speedMultiplier: 1, amountOptions: { '25%': false, '50%': false, 'MAX': true },
             enableSlippageProtection: true, maxSlippagePercent: 0.08
         },
-        2: { // FIGHT BSC：1X，每日限额2-2，50%，USDC-FIGHT，基础链OP目标链BSC，交易额不勾，滑点0.08%
+        2: { // FIGHT BSC：1X，每日限额2-2，50%，USDC-FIGHT，基础链OP目标链BSC，交易额不勾，滑点0.8%
             enableDailyLimit: true, dailyLimitMin: 2, dailyLimitMax: 2,
             enableVolumeLimit: false, volumeLimitTarget: 100000,
             baseToken: 'USDC', targetToken: 'FIGHT', baseChain: 'Optimism', targetChain: 'BNB',
             speedMultiplier: 1, amountOptions: { '25%': false, '50%': true, 'MAX': false },
-            enableSlippageProtection: true, maxSlippagePercent: 0.08
+            enableSlippageProtection: true, maxSlippagePercent: 0.8
         },
         3: { // KOGE：1X，不勾每日限额，MAX，USDC-KOGE，基础链BSC目标链BSC，交易额100000，滑点0.08%
             enableDailyLimit: false, dailyLimitMin: 53, dailyLimitMax: 108,
