@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genius 现货自动交易
 // @namespace    https://www.tradegenius.com
-// @version      3.11.2
+// @version      3.11.3
 // @description  Genius 现货自动交易 - 支持自定义交易对
 // @author       You
 // @match        https://www.tradegenius.com/*
@@ -284,10 +284,16 @@
                     stats.successfulSwaps = data.successfulSwaps || 0;
                     stats.failedSwaps = data.failedSwaps || 0;
                     todayTradeTarget = data.todayTradeTarget != null ? data.todayTradeTarget : randomInt(dailyLimitMin, dailyLimitMax);
-                    // 启用每日限额时：若加载的目标超出当前范围（如之前无限额保存的 999999），按当前范围重设
-                    if (enableDailyLimit && (todayTradeTarget < dailyLimitMin || todayTradeTarget > dailyLimitMax)) {
-                        todayTradeTarget = randomInt(dailyLimitMin, dailyLimitMax);
-                        log(`📂 今日目标已按限额范围重设: ${todayTradeTarget} 笔 (${dailyLimitMin}~${dailyLimitMax})`, 'info');
+                    // 启用每日限额时：若今日已完成 ≥ 限额下限，视为「在已有基础上再跑」，目标 = 已完成 + 随机追加笔数
+                    if (enableDailyLimit) {
+                        if (stats.successfulSwaps >= dailyLimitMin) {
+                            const add = randomInt(dailyLimitMin, dailyLimitMax);
+                            todayTradeTarget = stats.successfulSwaps + add;
+                            log(`📂 今日已完成 ${stats.successfulSwaps} 笔 ≥ 限额下限，目标设为再跑 ${add} 笔 → ${todayTradeTarget} 笔`, 'info');
+                        } else if (todayTradeTarget < dailyLimitMin || todayTradeTarget > dailyLimitMax) {
+                            todayTradeTarget = randomInt(dailyLimitMin, dailyLimitMax);
+                            log(`📂 今日目标已按限额范围重设: ${todayTradeTarget} 笔 (${dailyLimitMin}~${dailyLimitMax})`, 'info');
+                        }
                     }
                     log(`📂 已加载今日数据: ${stats.successfulSwaps}/${todayTradeTarget} 笔`, 'info');
                     return true;
