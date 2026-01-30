@@ -212,6 +212,33 @@
         maxSlippagePercent
     });
     
+    // 预设显示名称（与 预设123.MD 一致）
+    const PRESET_NAMES = { 1: 'OP UU', 2: 'FIGHT BSC', 3: 'KOGE' };
+    // 预设 1/2/3 内置默认参数（无保存数据时加载）
+    const DEFAULT_PRESETS = {
+        1: { // OP UU：1X，不勾每日限额，MAX，USDC-USDT，基础链OP目标链OP，交易额12000，滑点0.08%
+            enableDailyLimit: false, dailyLimitMin: 53, dailyLimitMax: 108,
+            enableVolumeLimit: true, volumeLimitTarget: 12000,
+            baseToken: 'USDC', targetToken: 'USDT', baseChain: 'Optimism', targetChain: 'Optimism',
+            speedMultiplier: 1, amountOptions: { '25%': false, '50%': false, 'MAX': true },
+            enableSlippageProtection: true, maxSlippagePercent: 0.08
+        },
+        2: { // FIGHT BSC：1X，每日限额2-2，50%，USDC-FIGHT，基础链OP目标链BSC，交易额不勾，滑点0.08%
+            enableDailyLimit: true, dailyLimitMin: 2, dailyLimitMax: 2,
+            enableVolumeLimit: false, volumeLimitTarget: 100000,
+            baseToken: 'USDC', targetToken: 'FIGHT', baseChain: 'Optimism', targetChain: 'BNB',
+            speedMultiplier: 1, amountOptions: { '25%': false, '50%': true, 'MAX': false },
+            enableSlippageProtection: true, maxSlippagePercent: 0.08
+        },
+        3: { // KOGE：1X，不勾每日限额，MAX，USDC-KOGE，基础链BSC目标链BSC，交易额100000，滑点0.08%
+            enableDailyLimit: false, dailyLimitMin: 53, dailyLimitMax: 108,
+            enableVolumeLimit: true, volumeLimitTarget: 100000,
+            baseToken: 'USDC', targetToken: 'KOGE', baseChain: 'BNB', targetChain: 'BNB',
+            speedMultiplier: 1, amountOptions: { '25%': false, '50%': false, 'MAX': true },
+            enableSlippageProtection: true, maxSlippagePercent: 0.08
+        }
+    };
+
     // 预设槽位 1/2/3：保存当前配置到指定槽位
     const savePreset = (slot) => {
         try {
@@ -220,14 +247,13 @@
             return true;
         } catch (e) { return false; }
     };
-    
-    // 预设槽位 1/2/3：从指定槽位加载并应用（写入 tradegenius_settings 后刷新页面）
+
+    // 预设槽位 1/2/3：直接应用内置配置（不读已保存数据），写入 tradegenius_settings 后刷新页面
     const loadPreset = (slot) => {
         try {
-            const key = 'tradegenius_preset_' + slot;
-            const raw = localStorage.getItem(key);
-            if (!raw) return false;
-            localStorage.setItem('tradegenius_settings', raw);
+            const config = DEFAULT_PRESETS[slot];
+            if (!config) return false;
+            localStorage.setItem('tradegenius_settings', JSON.stringify(config));
             return true;
         } catch (e) { return false; }
     };
@@ -598,16 +624,20 @@
         window.location.href = TRADE_PAGE_URL;
     };
 
-    // 刷新页面并自动重启
+    // 刷新页面并自动重启（若用户已点击停止，则仅刷新不设自动重启）
     const refreshAndRestart = () => {
-        log('🔄 连续失败过多，刷新页面并重启...', 'warning');
-        try {
-            localStorage.setItem('tradegenius_autostart', 'true');
-            localStorage.setItem('tradegenius_speed', speedMultiplier.toString());
-        } catch (e) {}
-        setTimeout(() => {
-            window.location.reload();
-        }, 1000);
+        const userStopped = localStorage.getItem('tradegenius_user_stopped') === 'true';
+        if (userStopped) {
+            try { localStorage.removeItem('tradegenius_user_stopped'); } catch (e) {}
+            log('用户已停止，仅刷新页面，不自动重启', 'info');
+        } else {
+            log('🔄 连续失败过多，刷新页面并重启...', 'warning');
+            try {
+                localStorage.setItem('tradegenius_autostart', 'true');
+                localStorage.setItem('tradegenius_speed', speedMultiplier.toString());
+            } catch (e) {}
+        }
+        setTimeout(() => window.location.reload(), 1000);
     };
 
     // ==================== DOM 查找函数 ====================
@@ -2171,6 +2201,7 @@
 
         window.botRunning = true;
         isRunning = true;
+        try { localStorage.removeItem('tradegenius_user_stopped'); } catch (e) {}
         stats.startTime = Date.now();
         UI.setRunning(true);
         
@@ -2223,10 +2254,11 @@
                     break;
                 }
                 
-                // 检查连续失败 - 3 次就刷新页面
+                // 检查连续失败 - 3 次就刷新页面（若用户已停止则不再刷新重启）
                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                     log('⚠️ 连续失败 3 次，等待 5 秒后刷新页面...', 'warning');
                     await sleep(5000);
+                    if (!checkRunning()) return;
                     refreshAndRestart();
                     return;
                 }
@@ -2352,6 +2384,7 @@
                         log('⚠️ Confirm 点击失败或超时，刷新页面重新开始...', 'warning');
                     }
                     await sleep(CONFIG.CLOSE_DIALOG_WAIT);
+                    if (!checkRunning()) return;
                     refreshAndRestart();
                     return;
                 }
@@ -2423,6 +2456,7 @@
         isRunning = false;
         window.botRunning = false;
         UI.setRunning(false);
+        try { localStorage.setItem('tradegenius_user_stopped', 'true'); } catch (e) {}
 
         const runtime = stats.startTime ? Math.floor((Date.now() - stats.startTime) / 1000) : 0;
         const minutes = Math.floor(runtime / 60);
@@ -2464,7 +2498,7 @@
             const root = document.createElement('div');
             root.id = 'trade-bot-panel';
             root.style.cssText = `
-                position: fixed; right: 16px; top: 100px; z-index: 999999;
+                position: fixed; left: 16px; top: 100px; z-index: 999999;
                 width: ${this.panelWidth}px; min-width: ${this.panelMinWidth}px; max-width: ${this.panelMaxWidth}px;
                 min-height: 300px; max-height: 80vh;
                 font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -2962,9 +2996,10 @@
             const presetBtnStyle = `border: 0; cursor: pointer; padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 600; transition: all .15s;`;
             const slotBtns = [];
             for (let slot = 1; slot <= 3; slot++) {
+                const label = PRESET_NAMES[slot] || `预设${slot}`;
                 const btn = document.createElement('button');
-                btn.textContent = `预设${slot}`;
-                btn.title = `选择预设槽位 ${slot}`;
+                btn.textContent = label;
+                btn.title = `预设 ${slot}：${label}`;
                 btn.style.cssText = presetBtnStyle + `background: rgba(168,85,247,.15); color: #a78bfa;`;
                 btn.onmouseover = () => { if (selectedPresetSlot !== slot) btn.style.background = 'rgba(168,85,247,.25)'; };
                 btn.onmouseout = () => { if (selectedPresetSlot !== slot) btn.style.background = 'rgba(168,85,247,.15)'; };
@@ -2987,7 +3022,8 @@
             loadPresetBtn.onmouseout = () => { loadPresetBtn.style.background = 'rgba(168,85,247,.2)'; };
             loadPresetBtn.onclick = () => {
                 if (loadPreset(selectedPresetSlot)) {
-                    log(`✓ 已加载预设 ${selectedPresetSlot}，刷新页面生效`, 'success');
+                    const name = PRESET_NAMES[selectedPresetSlot] || `预设${selectedPresetSlot}`;
+                    log(`✓ 已加载「${name}」，刷新页面生效`, 'success');
                     setTimeout(() => location.reload(), 800);
                 } else {
                     log(`预设 ${selectedPresetSlot} 无数据`, 'warning');
@@ -3001,7 +3037,8 @@
             savePresetBtn.onmouseout = () => { savePresetBtn.style.background = 'rgba(168,85,247,.15)'; };
             savePresetBtn.onclick = () => {
                 if (savePreset(selectedPresetSlot)) {
-                    log(`✓ 已保存为预设 ${selectedPresetSlot}`, 'success');
+                    const name = PRESET_NAMES[selectedPresetSlot] || `预设${selectedPresetSlot}`;
+                    log(`✓ 已保存为「${name}」`, 'success');
                 } else {
                     log('保存预设失败', 'error');
                 }
@@ -3332,25 +3369,24 @@
         const startUp = () => {
             UI.mount();
             
-            // 检查是否需要自动重启（刷新页面后）
+            // 检查是否需要自动重启（刷新页面后）；若用户曾点击停止则不再自动开始
             try {
+                if (localStorage.getItem('tradegenius_user_stopped') === 'true') {
+                    localStorage.removeItem('tradegenius_user_stopped');
+                    localStorage.removeItem('tradegenius_autostart');
+                    return;
+                }
                 const autostart = localStorage.getItem('tradegenius_autostart');
                 if (autostart === 'true') {
                     localStorage.removeItem('tradegenius_autostart');
-                    
-                    // 恢复速率设置
                     const savedSpeed = localStorage.getItem('tradegenius_speed');
                     if (savedSpeed) {
                         speedMultiplier = parseInt(savedSpeed) || 1;
                         log(`恢复速率设置: ${speedMultiplier}x`, 'info');
                     }
-                    
-                    // 延迟后自动开始
                     log('🔄 页面刷新后自动重启...', 'info');
                     setTimeout(() => {
-                        if (!isRunning) {
-                            executeSwapLoop();
-                        }
+                        if (!isRunning) executeSwapLoop();
                     }, CONFIG.RETRY_WAIT);
                 }
             } catch (e) {}
