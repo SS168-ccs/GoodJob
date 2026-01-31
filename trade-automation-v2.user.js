@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genius 现货自动交易
 // @namespace    https://www.tradegenius.com
-// @version      3.11.3
+// @version      3.11.5
 // @description  Genius 现货自动交易 - 支持自定义交易对
 // @author       You
 // @match        https://www.tradegenius.com/*
@@ -73,6 +73,7 @@
 
     // ==================== 全局变量 ====================
     let isRunning = false;
+    let isDeployRunning = false;   // 新号一键部署独立状态，与 isRunning 无关
     let todayTradeTarget = 0;      // 今日交易目标
     let consecutiveFailures = 0;   // 连续失败次数
     const MAX_CONSECUTIVE_FAILURES = 3; // 最大连续失败次数
@@ -645,6 +646,259 @@
         }
         setTimeout(() => window.location.reload(), 1000);
     };
+
+    // ==================== 新号一键部署（独立功能，与交易逻辑无关） ====================
+    const checkDeployRunning = () => isDeployRunning;
+    const deploySleep = (ms) => new Promise(resolve => {
+        const t0 = Date.now();
+        const tick = () => {
+            if (!isDeployRunning || Date.now() - t0 >= ms) { resolve(); return; }
+            setTimeout(tick, 100);
+        };
+        setTimeout(tick, Math.min(100, ms));
+    });
+
+    const DEPLOY_CHAINS = [
+        { name: 'Solana', evm: false },
+        { name: 'Optimism', evm: true },
+        { name: 'BNB', evm: true },
+        { name: 'Arbitrum', evm: true },
+        { name: 'Base', evm: true }
+    ];
+    const AGGREGATORS_OFF = ['odos', 'kyberswap', 'openocean', 'lifi', 'uniswapv2', 'uniswapv3'];
+    const AGGREGATORS_ON = ['okx', '0x', 'evmdirectpool', 'lfj', 'algebra', 've33'];
+
+    const findDeployEl = (selectorOrFn, timeout = 3000) => {
+        const deadline = Date.now() + timeout;
+        const fn = typeof selectorOrFn === 'function' ? selectorOrFn : () => document.querySelector(selectorOrFn);
+        return new Promise((resolve) => {
+            const check = () => {
+                if (!isDeployRunning) { resolve(null); return; }
+                const el = fn();
+                if (el) { resolve(el); return; }
+                if (Date.now() > deadline) { resolve(null); return; }
+                setTimeout(check, 150);
+            };
+            check();
+        });
+    };
+
+    // 部署用：可靠点击。Radix switch 只点一次（点两次会来回切换导致状态错误）
+    const deployClick = async (el) => {
+        if (!el || !el.offsetParent) return false;
+        const isSwitch = (el.getAttribute('role') === 'switch');
+        if (isSwitch) {
+            el.scrollIntoView({ block: 'center', behavior: 'auto' });
+            await deploySleep(150);
+            el.focus();
+            el.click();
+            await deploySleep(300);
+            return true;
+        }
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        try {
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+        } catch (e) {
+            el.click();
+        }
+        await deploySleep(350);
+        return true;
+    };
+
+    // 部署用：React 兼容设置 input 值
+    const deploySetInput = (input, value) => {
+        if (!input) return false;
+        input.focus();
+        try {
+            const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+            if (desc && desc.set) {
+                desc.set.call(input, value);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                input.value = value;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        } catch (e) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return true;
+    };
+
+    async function runDeployLoop() {
+        const logDeploy = (msg, type = 'info') => log(`[部署] ${msg}`, type);
+        logDeploy('新号一键部署开始', 'info');
+        try {
+            const clickEl = async (el) => { if (el) { el.click(); await deploySleep(400); } return !!el; };
+
+            // 1. 点击设置
+            const settingsBtn = await findDeployEl(() =>
+                Array.from(document.querySelectorAll('svg')).find(s => (s.getAttribute('class') || '').includes('lucide-settings2'))?.closest('div[class*="cursor-pointer"]')
+            );
+            if (!checkDeployRunning()) return;
+            if (!settingsBtn) { logDeploy('未找到设置按钮', 'warning'); return; }
+            logDeploy('点击设置', 'info');
+            await clickEl(settingsBtn);
+            await deploySleep(800);
+
+            // 2. 多链滑点：固定找「当前页面」的 NetworkButton（同一颗），每次打开下拉再点菜单项
+            for (const chain of DEPLOY_CHAINS) {
+                if (!checkDeployRunning()) return;
+                logDeploy(`处理链: ${chain.name}`, 'info');
+                const networkBtn = await findDeployEl(() => {
+                    const btn = document.querySelector('[data-sentry-component="NetworkButton"]');
+                    if (btn && btn.offsetParent) return btn;
+                    const all = document.querySelectorAll('div[class*="border-genius-blue"][class*="cursor-pointer"]');
+                    return Array.from(all).find(d => d.querySelector('svg') && (d.textContent || '').trim().length > 0) || null;
+                }, 2500);
+                if (networkBtn) {
+                    await deployClick(networkBtn);
+                    await deploySleep(600);
+                    const chainItem = await findDeployEl(() => {
+                        const menu = document.querySelector('[role="menu"], [data-radix-menu-content]');
+                        if (!menu) return null;
+                        const spans = menu.querySelectorAll('span.text-genius-cream, span[class*="text-genius-cream"]');
+                        for (const s of spans) {
+                            if ((s.textContent || '').trim() === chain.name) {
+                                const row = s.closest('div[class*="cursor-pointer"]') || s.closest('div[class*="flex"]');
+                                return row || s;
+                            }
+                        }
+                        return null;
+                    }, 2000);
+                    if (chainItem) await deployClick(chainItem);
+                    else logDeploy(`未找到链菜单项: ${chain.name}`, 'warning');
+                    await deploySleep(700);
+                } else {
+                    logDeploy('未找到多链选择框', 'warning');
+                }
+                const fillVisibleInputs = () => {
+                    const inputs = document.querySelectorAll('input[class*="border-genius-blue"], input[class*="bg-genius-blue/40"]');
+                    for (const inp of Array.from(inputs)) {
+                        if (!inp.offsetParent) continue;
+                        const isGwei = (inp.className || '').includes('text-center') && (inp.closest('div')?.textContent || '').toLowerCase().includes('priority');
+                        if (chain.evm && isGwei) { deploySetInput(inp, '0.01'); continue; }
+                        deploySetInput(inp, '0.01');
+                    }
+                };
+                const buyBtn = await findDeployEl(() => Array.from(document.querySelectorAll('button')).find(b => /^Buy\s*$/i.test((b.textContent || '').trim()) && (b.className || '').includes('text-genius-green')));
+                if (buyBtn) {
+                    await deployClick(buyBtn);
+                    await deploySleep(500);
+                    fillVisibleInputs();
+                    await deploySleep(200);
+                }
+                const sellBtn = await findDeployEl(() => Array.from(document.querySelectorAll('button')).find(b => /^Sell\s*$/i.test((b.textContent || '').trim()) && (b.className || '').includes('border-genius-blue')));
+                if (sellBtn) {
+                    await deployClick(sellBtn);
+                    await deploySleep(500);
+                    fillVisibleInputs();
+                    await deploySleep(200);
+                }
+                await deploySleep(400);
+            }
+
+            // 2.5 Trading Pre-sets 滑点设置完成后，点击 Save 保存（Save 按钮在 Trading Pre-sets 界面）
+            if (!checkDeployRunning()) return;
+            const saveBtn = await findDeployEl(() => {
+                const buttons = document.querySelectorAll('button');
+                return Array.from(buttons).find(b => {
+                    const t = (b.textContent || '').trim();
+                    if (t !== 'Save') return false;
+                    const c = b.className || '';
+                    return c.includes('bg-genius-pink') && (c.includes('text-genius-blue') || c.includes('genius-pink-foreground'));
+                }) || Array.from(buttons).find(b => (b.textContent || '').trim() === 'Save' && (b.className || '').includes('bg-genius-pink')) || null;
+            }, 2000);
+            if (saveBtn) {
+                saveBtn.scrollIntoView({ block: 'center', behavior: 'auto' });
+                await deploySleep(300);
+                await deployClick(saveBtn);
+                logDeploy('已点击 Save 保存 (Trading Pre-sets)', 'success');
+                await deploySleep(500);
+            } else {
+                logDeploy('未找到 Save 按钮，请手动保存', 'warning');
+            }
+
+            // 3. Aggregator/Fast Swaps：点击入口，仅在本区域内按名称依次点击 Button(role=switch)（自动保存，无需 Save）
+            if (!checkDeployRunning()) return;
+            const aggEntry = await findDeployEl(() =>
+                Array.from(document.querySelectorAll('div')).find(d => (d.textContent || '').trim() === 'Aggregator/Fast Swaps')
+            );
+            if (aggEntry) {
+                await deployClick(aggEntry);
+                await deploySleep(800);
+                const aggContent = Array.from(document.querySelectorAll('div')).find(d => (d.textContent || '').includes('odos') && (d.className || '').includes('border-genius-blue'));
+                const container = aggContent || aggEntry.closest('div[class*="flex"]') || document.body;
+                const switches = container.querySelectorAll ? Array.from(container.querySelectorAll('button[role="switch"]')).filter(s => s.offsetParent) : Array.from(document.querySelectorAll('button[role="switch"]')).filter(s => s.offsetParent);
+                for (const toggle of switches) {
+                    if (!checkDeployRunning()) return;
+                    const row = toggle.closest('div[class*="flex"]');
+                    const labelEl = row && (row.querySelector('[class*="text-genius-cream"]') || row);
+                    const label = (labelEl && labelEl.textContent) ? labelEl.textContent.trim() : '';
+                    const name = label.toLowerCase().replace(/\s/g, '');
+                    if (!name) continue;
+                    const shouldOn = AGGREGATORS_ON.some(a => name.includes(a));
+                    const shouldOff = AGGREGATORS_OFF.some(a => name.includes(a));
+                    const checked = (toggle.getAttribute('aria-checked') || toggle.getAttribute('data-state')) === 'true' || (toggle.getAttribute('data-state') === 'checked');
+                    if (shouldOn && !checked) { await deployClick(toggle); await deploySleep(200); }
+                    if (shouldOff && checked) { await deployClick(toggle); await deploySleep(200); }
+                }
+                await deploySleep(400);
+            }
+
+            // 4. Fees：与 Aggregator 不同，此处只有一个 switch（Show Fees）。按父级结构定位：Fees → Show Fees → border 容器 → button[role=switch]
+            if (!checkDeployRunning()) return;
+            const feesEntry = await findDeployEl(() =>
+                Array.from(document.querySelectorAll('div')).find(d => (d.textContent || '').trim() === 'Fees')
+            );
+            if (feesEntry) {
+                await deployClick(feesEntry);
+                await deploySleep(700);
+                const feesSwitch = await findDeployEl(() => {
+                    const showFeesLabel = Array.from(document.querySelectorAll('div')).find(d => (d.textContent || '').trim() === 'Show Fees');
+                    if (showFeesLabel) {
+                        const borderBox = showFeesLabel.parentElement?.querySelector('div[class*="border-genius-blue"][class*="rounded-sm"]') || showFeesLabel.nextElementSibling;
+                        if (borderBox) {
+                            const btn = borderBox.querySelector('button[role="switch"]');
+                            if (btn) return btn;
+                        }
+                    }
+                    const hint = Array.from(document.querySelectorAll('div')).find(d =>
+                        (d.textContent || '').includes('Displays the Genius') || (d.textContent || '').includes('Sponsor, Gas and LND fees')
+                    );
+                    if (hint) {
+                        const container = hint.closest('div[class*="border-genius-blue"][class*="rounded-sm"]') || hint.parentElement;
+                        if (container) return container.querySelector('button[role="switch"]');
+                    }
+                    return null;
+                }, 1500);
+                if (feesSwitch) {
+                    const checked = (feesSwitch.getAttribute('aria-checked') || feesSwitch.getAttribute('data-state')) === 'true' || feesSwitch.getAttribute('data-state') === 'checked';
+                    if (!checked) {
+                        await deployClick(feesSwitch);
+                        logDeploy('已点击 Show Fees 开关（保持开启）', 'info');
+                    }
+                } else {
+                    logDeploy('未找到 Fees 区域内 Show Fees 开关', 'warning');
+                }
+            }
+
+            logDeploy('新号一键部署流程执行完毕', 'success');
+        } catch (e) {
+            log(`[部署] 错误: ${e.message}`, 'error');
+        } finally {
+            isDeployRunning = false;
+            if (UI.setDeployRunning) UI.setDeployRunning(false);
+        }
+    }
+
+    function stopDeployLoop() {
+        isDeployRunning = false;
+        log('[部署] 已停止', 'warning');
+        if (UI.setDeployRunning) UI.setDeployRunning(false);
+    }
 
     // ==================== DOM 查找函数 ====================
     
@@ -3190,6 +3444,65 @@
             slippageRow.appendChild(slippageHint);
             
             controlsWrap.appendChild(slippageRow);
+
+            // ---- UI: 新号一键部署（独立功能，与交易逻辑无关） ----
+            const deployRow = document.createElement('div');
+            deployRow.style.cssText = `
+                display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+                padding: 8px 10px; border-radius: 8px;
+                background: linear-gradient(135deg, rgba(34,197,94,.08), rgba(34,197,94,.02));
+                border: 1px solid rgba(34,197,94,.2);
+            `;
+            const deployLabel = document.createElement('span');
+            deployLabel.textContent = '新号一键部署';
+            deployLabel.style.cssText = `font-size: 10px; font-weight: 600; color: #22c55e;`;
+            const deployStartBtn = document.createElement('button');
+            deployStartBtn.textContent = '开始';
+            deployStartBtn.style.cssText = `
+                border: 0; cursor: pointer; padding: 5px 12px; border-radius: 6px;
+                font-size: 10px; font-weight: 600; background: #22c55e; color: #fff;
+                transition: all .2s;
+            `;
+            deployStartBtn.onmouseover = () => { if (!isDeployRunning) deployStartBtn.style.background = '#16a34a'; };
+            deployStartBtn.onmouseout = () => { if (!isDeployRunning) deployStartBtn.style.background = '#22c55e'; };
+            const deployStopBtn = document.createElement('button');
+            deployStopBtn.textContent = '停止';
+            deployStopBtn.style.cssText = `
+                border: 1px solid rgba(239,68,68,.5); cursor: pointer; padding: 5px 12px; border-radius: 6px;
+                font-size: 10px; font-weight: 600; background: rgba(239,68,68,.15); color: #f87171;
+                transition: all .2s;
+            `;
+            deployStopBtn.onmouseover = () => { deployStopBtn.style.background = 'rgba(239,68,68,.25)'; };
+            deployStopBtn.onmouseout = () => { deployStopBtn.style.background = 'rgba(239,68,68,.15)'; };
+            deployStartBtn.onclick = () => {
+                if (isDeployRunning) return;
+                isDeployRunning = true;
+                deployStartBtn.disabled = true;
+                deployStartBtn.style.opacity = '0.6';
+                deployStopBtn.style.display = '';
+                if (typeof UI.setDeployRunning === 'function') UI.setDeployRunning(true);
+                runDeployLoop();
+            };
+            deployStopBtn.onclick = () => {
+                stopDeployLoop();
+                deployStartBtn.disabled = false;
+                deployStartBtn.style.opacity = '1';
+                deployStopBtn.style.display = 'none';
+            };
+            deployStopBtn.style.display = 'none';
+            deployRow.appendChild(deployLabel);
+            deployRow.appendChild(deployStartBtn);
+            deployRow.appendChild(deployStopBtn);
+            controlsWrap.appendChild(deployRow);
+
+            this.setDeployRunning = (running) => {
+                isDeployRunning = running;
+                if (deployStartBtn) {
+                    deployStartBtn.disabled = running;
+                    deployStartBtn.style.opacity = running ? '0.6' : '1';
+                }
+                if (deployStopBtn) deployStopBtn.style.display = running ? '' : 'none';
+            };
 
             // ---- UI: Log ----
             const logWrap = document.createElement('div');
