@@ -678,6 +678,7 @@
     const DEPLOY_SAVED_SEARCH_TIMEOUT = 14000;
     const DEPLOY_SAVED_RETRY_DELAY = 2000;
     const DEPLOY_SAVED_POLL = 400;
+    const DEPLOY_SAVED_MAX_STAR_RETRIES = 2;
 
     const findDeployEl = (selectorOrFn, timeout = 3000) => {
         const deadline = Date.now() + timeout;
@@ -890,7 +891,15 @@
         logDeploy('收藏 ' + DEPLOY_SAVED_STABLE + '（点星星）', 'info');
         deploySavedClickStarInRow(row);
         let ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE));
-        if (!ok) { logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄', 'warning'); }
+        if (!ok && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
+            for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
+                logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄，' + (DEPLOY_SAVED_RETRY_DELAY / 1000) + 's 后重试检测（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
+                await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+                ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE), 8000);
+                if (ok) break;
+            }
+        }
+        if (!ok) logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄', 'warning');
         const searchInput = deploySavedFindSearchInput();
         if (!searchInput || !searchInput.offsetParent) { logDeploy('未找到搜索框', 'error'); return; }
         logDeploy('搜索 ' + DEPLOY_SAVED_SEARCH + '…', 'info');
@@ -907,6 +916,14 @@
             logDeploy('收藏 ' + DEPLOY_SAVED_SEARCH + '（点星星）', 'info');
             deploySavedClickStarInRow(row);
             ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH));
+            if (!ok && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
+                for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
+                    logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄，' + (DEPLOY_SAVED_RETRY_DELAY / 1000) + 's 后重试检测（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
+                    await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+                    ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH), 8000);
+                    if (ok) break;
+                }
+            }
             if (!ok) logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄', 'warning');
         }
         logDeploy('搜索 CA…', 'info');
@@ -957,7 +974,16 @@
                 }
                 return null;
             };
-            await deploySavedWaitForStarSaved(getCARow);
+            let caOk = await deploySavedWaitForStarSaved(getCARow);
+            if (!caOk && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
+                for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
+                    logDeploy('CA 代币星星未变黄，' + (DEPLOY_SAVED_RETRY_DELAY / 1000) + 's 后重试检测（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
+                    await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+                    caOk = await deploySavedWaitForStarSaved(getCARow, 8000);
+                    if (caOk) break;
+                }
+            }
+            if (!caOk) logDeploy('CA 代币星星未变黄', 'warning');
         }
         const savedTab = deploySavedFindSavedTab();
         if (savedTab) {
