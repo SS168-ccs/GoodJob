@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genius 现货自动交易
 // @namespace    https://www.tradegenius.com
-// @version      3.11.5
+// @version      3.11.6
 // @description  Genius 现货自动交易 - 支持自定义交易对
 // @author       You
 // @match        https://www.tradegenius.com/*
@@ -668,6 +668,17 @@
     const AGGREGATORS_OFF = ['odos', 'kyberswap', 'openocean', 'lifi', 'uniswapv2', 'uniswapv3'];
     const AGGREGATORS_ON = ['okx', '0x', 'evmdirectpool', 'lfj', 'algebra', 've33'];
 
+    // 部署完成后添加代币到 Saved（与 添加代币到Saved.js 流程一致）
+    const DEPLOY_SAVED_STABLE = 'USDC';
+    const DEPLOY_SAVED_SEARCH = 'KOGE';
+    const DEPLOY_SAVED_CA = '0xb2d97c4ed2d0ef452654f5cab3da3735b5e6f3ab';
+    const DEPLOY_SAVED_WAIT_CLICK = 800;
+    const DEPLOY_SAVED_WAIT_INPUT = 1200;
+    const DEPLOY_SAVED_STAR_TIMEOUT = 10000;
+    const DEPLOY_SAVED_SEARCH_TIMEOUT = 14000;
+    const DEPLOY_SAVED_RETRY_DELAY = 2000;
+    const DEPLOY_SAVED_POLL = 400;
+
     const findDeployEl = (selectorOrFn, timeout = 3000) => {
         const deadline = Date.now() + timeout;
         const fn = typeof selectorOrFn === 'function' ? selectorOrFn : () => document.querySelector(selectorOrFn);
@@ -726,6 +737,240 @@
         }
         return true;
     };
+
+    // 部署后添加代币到 Saved：依赖 getDialog/findChooseButtons/findStableTab/findSavedTab/findCloseButton（主脚本 DOM 区定义）
+    const deploySavedGetDialog = () => document.querySelector('[role="dialog"]') || document.body;
+    const deploySavedFindRowByTokenName = (tokenName) => {
+        const dialog = deploySavedGetDialog();
+        const rows = dialog.querySelectorAll('div[class*="cursor-pointer"][class*="hover:bg-genius-blue"], div[class*="py-2"][class*="px-4"]');
+        for (const row of Array.from(rows)) {
+            if (!row.offsetParent) continue;
+            const text = (row.textContent || '').trim();
+            if (text.includes(tokenName) && text.includes('$') && row.querySelector('svg[class*="lucide-star"]')) return row;
+        }
+        return null;
+    };
+    const deploySavedFindRowByLogo = (tokenSymbol) => {
+        const dialog = deploySavedGetDialog();
+        const sym = (tokenSymbol || '').trim().toLowerCase().replace(/\.png$/i, '');
+        if (!sym) return null;
+        const suffix = sym + '.png';
+        for (const img of dialog.querySelectorAll('img')) {
+            const raw = ((img.src || '') + (img.getAttribute('srcset') || '')).toLowerCase();
+            if (!raw.includes('tokenlogos') || !raw.includes(suffix)) continue;
+            const row = img.closest('div[class*="cursor-pointer"][class*="hover:bg-genius-blue"]') || img.closest('div[class*="py-2"][class*="px-4"]') || img.closest('div[class*="cursor-pointer"]');
+            if (!row || !(row.textContent || '').includes('$') || row.offsetParent === null) continue;
+            return row;
+        }
+        return null;
+    };
+    const deploySavedIsStarSaved = (row) => {
+        if (!row || !row.isConnected) return false;
+        const star = row.querySelector('svg[class*="lucide-star"]') || row.querySelector('[class*="lucide-star"]');
+        if (!star) return false;
+        const c = (typeof star.className === 'string' ? star.className : (star.getAttribute && star.getAttribute('class')) || '').toString();
+        return c.includes('fill-genius-yellow') || c.includes('text-genius-yellow');
+    };
+    const deploySavedWaitForStarSaved = async (rowOrGetRow, timeout = DEPLOY_SAVED_STAR_TIMEOUT) => {
+        await deploySleep(400);
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+            if (!isDeployRunning) return false;
+            const row = typeof rowOrGetRow === 'function' ? rowOrGetRow() : rowOrGetRow;
+            if (row && deploySavedIsStarSaved(row)) return true;
+            await deploySleep(DEPLOY_SAVED_POLL);
+        }
+        return false;
+    };
+    const deploySavedClickStarInRow = (row) => {
+        const star = row && (row.querySelector('svg[class*="lucide-star"]') || row.querySelector('[class*="lucide-star"]'));
+        if (!star) return false;
+        try {
+            if (typeof star.click === 'function') star.click();
+            else star.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            return true;
+        } catch (e) {
+            const parent = star.closest('div[class*="cursor-pointer"]') || star.parentElement;
+            if (parent && typeof parent.click === 'function') parent.click();
+            return !!parent;
+        }
+    };
+    const deploySavedFindSearchInput = () => {
+        const dialog = deploySavedGetDialog();
+        return dialog.querySelector('input[placeholder="Search"]') || dialog.querySelector('input[type="text"][class*="rounded-sm"]') || dialog.querySelector('input[class*="bg-genius-indigo"]');
+    };
+    const deploySavedFindStableTab = () => {
+        const dialog = deploySavedGetDialog();
+        const tabRow = dialog.querySelector('div.flex.flex-row.w-full.gap-3') || dialog.querySelector('div[class*="gap-3"][class*="flex-row"]');
+        if (tabRow) {
+            for (const tab of tabRow.querySelectorAll('div')) {
+                if ((tab.textContent || '').trim() === 'Stable' && tab.offsetParent !== null) return tab;
+            }
+        }
+        for (const div of dialog.querySelectorAll('div')) {
+            const t = (div.textContent || '').trim();
+            const c = div.className || '';
+            if (t === 'Stable' && (c.includes('cursor-pointer') || c.includes('flex-col')) && div.offsetParent !== null) return div;
+        }
+        return null;
+    };
+    const deploySavedFindSavedTab = () => {
+        const dialog = deploySavedGetDialog();
+        const tabRow = dialog.querySelector('div.flex.flex-row.w-full.gap-3') || dialog.querySelector('div[class*="gap-3"][class*="flex-row"]');
+        if (tabRow) {
+            for (const tab of tabRow.querySelectorAll('div')) {
+                if ((tab.textContent || '').trim() === 'Saved' && tab.offsetParent !== null) return tab;
+            }
+        }
+        for (const div of dialog.querySelectorAll('div')) {
+            const t = (div.textContent || '').trim();
+            const c = div.className || '';
+            if (t === 'Saved' && (c.includes('cursor-pointer') || c.includes('flex-col')) && div.offsetParent !== null) return div;
+        }
+        return null;
+    };
+    const deploySavedFindCloseButton = () => {
+        const dialog = document.querySelector('[role="dialog"]');
+        if (!dialog) return null;
+        return dialog.querySelector('button[aria-label="Close"]') || Array.from(document.querySelectorAll('button')).find(b => ((b.textContent || '').trim() === 'Close' || (b.textContent || '').trim() === '关闭') && (b.className || '').includes('bg-genius-pink'));
+    };
+    const deploySavedClickEl = (el) => {
+        if (!el || !el.offsetParent) return false;
+        el.scrollIntoView({ block: 'center', behavior: 'auto' });
+        el.click();
+        return true;
+    };
+
+    async function runDeployAddToSaved(logDeploy) {
+        if (!DEPLOY_SAVED_CA) return;
+        const getDialog = deploySavedGetDialog;
+        const findChooseButtons = () => Array.from(document.querySelectorAll('button')).filter(b => {
+            const text = (b.innerText || b.textContent || '').trim();
+            const spanText = b.querySelector('span')?.innerText?.trim() || '';
+            return (text === 'Choose' || spanText === 'Choose') && b.offsetParent !== null;
+        });
+        const waitForDialogOpen = async (timeout) => {
+            const start = Date.now();
+            while (Date.now() - start < timeout) {
+                if (!isDeployRunning) return false;
+                if (!!document.querySelector('[role="dialog"]')) return true;
+                await deploySleep(DEPLOY_SAVED_POLL);
+            }
+            return false;
+        };
+        const waitForTokenRow = async (tokenName, timeout) => {
+            const start = Date.now();
+            while (Date.now() - start < timeout) {
+                if (!isDeployRunning) return null;
+                const row = deploySavedFindRowByLogo(tokenName) || deploySavedFindRowByTokenName(tokenName);
+                if (row) return row;
+                await deploySleep(DEPLOY_SAVED_POLL);
+            }
+            return null;
+        };
+        logDeploy('添加代币到 Saved：点击第二个 Choose…', 'info');
+        const chooseBtns = findChooseButtons();
+        const secondChoose = chooseBtns[1];
+        if (!secondChoose) { logDeploy('未找到第二个 Choose', 'error'); return; }
+        deploySavedClickEl(secondChoose);
+        await deploySleep(DEPLOY_SAVED_WAIT_CLICK);
+        const opened = await waitForDialogOpen(10000);
+        if (!opened) { logDeploy('代币弹窗未打开', 'error'); return; }
+        logDeploy('代币弹窗已打开，点击 Stable', 'info');
+        const stableTab = deploySavedFindStableTab();
+        if (!stableTab) { logDeploy('未找到 Stable 标签', 'error'); return; }
+        deploySavedClickEl(stableTab);
+        await deploySleep(DEPLOY_SAVED_WAIT_CLICK);
+        let row = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE);
+        if (!row) {
+            await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+            row = await waitForTokenRow(DEPLOY_SAVED_STABLE, 8000);
+        }
+        if (!row) { logDeploy('未找到 ' + DEPLOY_SAVED_STABLE + ' 行', 'error'); return; }
+        logDeploy('收藏 ' + DEPLOY_SAVED_STABLE + '（点星星）', 'info');
+        deploySavedClickStarInRow(row);
+        let ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE));
+        if (!ok) { logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄', 'warning'); }
+        const searchInput = deploySavedFindSearchInput();
+        if (!searchInput || !searchInput.offsetParent) { logDeploy('未找到搜索框', 'error'); return; }
+        logDeploy('搜索 ' + DEPLOY_SAVED_SEARCH + '…', 'info');
+        deploySetInput(searchInput, DEPLOY_SAVED_SEARCH);
+        await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
+        row = await waitForTokenRow(DEPLOY_SAVED_SEARCH, DEPLOY_SAVED_SEARCH_TIMEOUT);
+        if (!row) {
+            await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+            deploySetInput(searchInput, DEPLOY_SAVED_SEARCH);
+            await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
+            row = await waitForTokenRow(DEPLOY_SAVED_SEARCH, 8000);
+        }
+        if (row) {
+            logDeploy('收藏 ' + DEPLOY_SAVED_SEARCH + '（点星星）', 'info');
+            deploySavedClickStarInRow(row);
+            ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH));
+            if (!ok) logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄', 'warning');
+        }
+        logDeploy('搜索 CA…', 'info');
+        deploySetInput(searchInput, DEPLOY_SAVED_CA);
+        await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
+        const reStable = new RegExp('\\b' + (DEPLOY_SAVED_STABLE || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+        const reSearch = new RegExp('\\b' + (DEPLOY_SAVED_SEARCH || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+        const findCARow = () => {
+            const rows = getDialog().querySelectorAll('div[class*="cursor-pointer"]');
+            for (const r of Array.from(rows)) {
+                if (!r.offsetParent || !r.querySelector('svg[class*="lucide-star"]')) continue;
+                const text = (r.textContent || '').trim();
+                if (reStable.test(text) || reSearch.test(text)) continue;
+                if ((text || '').includes('$')) return r;
+            }
+            return null;
+        };
+        let deadline = Date.now() + DEPLOY_SAVED_SEARCH_TIMEOUT;
+        let caRow = null;
+        while (Date.now() < deadline) {
+            if (!isDeployRunning) return;
+            caRow = findCARow();
+            if (caRow) break;
+            await deploySleep(DEPLOY_SAVED_POLL);
+        }
+        if (!caRow) {
+            await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+            deploySetInput(searchInput, DEPLOY_SAVED_CA);
+            await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
+            deadline = Date.now() + 8000;
+            while (Date.now() < deadline) {
+                if (!isDeployRunning) return;
+                caRow = findCARow();
+                if (caRow) break;
+                await deploySleep(DEPLOY_SAVED_POLL);
+            }
+        }
+        if (caRow) {
+            logDeploy('收藏 CA 代币（点星星）', 'info');
+            deploySavedClickStarInRow(caRow);
+            const getCARow = () => {
+                const rows = getDialog().querySelectorAll('div[class*="cursor-pointer"]');
+                for (const r of Array.from(rows)) {
+                    if (!r.offsetParent || !r.querySelector('svg[class*="lucide-star"]')) continue;
+                    const text = (r.textContent || '').trim();
+                    if (reStable.test(text) || reSearch.test(text)) continue;
+                    if ((text || '').includes('$')) return r;
+                }
+                return null;
+            };
+            await deploySavedWaitForStarSaved(getCARow);
+        }
+        const savedTab = deploySavedFindSavedTab();
+        if (savedTab) {
+            deploySavedClickEl(savedTab);
+            await deploySleep(1500);
+        }
+        const closeBtn = deploySavedFindCloseButton();
+        if (closeBtn && closeBtn.offsetParent) {
+            deploySavedClickEl(closeBtn);
+            logDeploy('已关闭代币弹窗', 'success');
+        }
+        logDeploy('添加代币到 Saved 完成', 'success');
+    }
 
     async function runDeployLoop() {
         const logDeploy = (msg, type = 'info') => log(`[部署] ${msg}`, type);
@@ -883,6 +1128,25 @@
                 } else {
                     logDeploy('未找到 Fees 区域内 Show Fees 开关', 'warning');
                 }
+            }
+
+            // Fees 结束后先关闭设置弹窗（lucide-x 图标按钮），等待 1–2 秒后再执行添加代币到 Saved
+            if (!checkDeployRunning()) return;
+            const settingsDialog = document.querySelector('[role="dialog"]');
+            if (settingsDialog) {
+                const xSvg = settingsDialog.querySelector('svg[class*="lucide-x"]');
+                const closeBtn = xSvg ? (xSvg.closest('button') || xSvg.parentElement) : (settingsDialog.querySelector('button[aria-label="Close"]') || Array.from(settingsDialog.querySelectorAll('button')).find(b => ((b.textContent || '').trim() === 'Close' || (b.textContent || '').trim() === '关闭') && (b.className || '').includes('bg-genius-pink')));
+                if (closeBtn && closeBtn.offsetParent) {
+                    logDeploy('关闭设置弹窗…', 'info');
+                    closeBtn.click();
+                }
+            }
+            await deploySleep(1500);
+            const dialogStillOpen = !!document.querySelector('[role="dialog"]');
+            if (dialogStillOpen) logDeploy('设置弹窗未关闭，继续执行添加代币', 'warning');
+
+            if (checkDeployRunning() && DEPLOY_SAVED_CA) {
+                await runDeployAddToSaved(logDeploy);
             }
 
             logDeploy('新号一键部署流程执行完毕', 'success');
