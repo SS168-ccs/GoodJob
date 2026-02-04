@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genius 现货自动交易
 // @namespace    https://www.tradegenius.com
-// @version      3.11.6
+// @version      3.11.7
 // @description  Genius 现货自动交易 - 支持自定义交易对
 // @author       You
 // @match        https://www.tradegenius.com/*
@@ -35,17 +35,17 @@
         waitBeforeConfirm: [963, 1315],
         waitAfterConfirm: [2876, 4231],
         waitAfterClose: [1324, 1987],
-        
+
         // 交易间隔
         waitBetweenRounds: [5234, 8456], // 5-8秒
-        
+
         // 重试设置
         maxRetryToken: 3,
-        
+
         // UI 稳定等待时间
         UI_STABLE_WAIT: 500,              // UI 稳定等待时间（毫秒）
         LOG_MAX_CHARS: 2000,              // 面板日志最多保留字符数
-        
+
         // 超时设置
         DIALOG_OPEN_TIMEOUT: 5000,        // 弹窗打开超时（毫秒）
         DIALOG_CLOSE_TIMEOUT: 5000,       // 弹窗关闭超时（毫秒）
@@ -58,11 +58,11 @@
         DIALOG_CLOSE_RETRY_WAIT: 3000,    // 弹窗未关闭时重试等待（selectToken 内）
         TAB_ACTIVATE_TIMEOUT: 5000,       // Saved/Stable 标签激活超时（clickTab）
         PRICE_LOAD_TIMEOUT: 10000,        // 价格元素加载超时（waitForPrices / 滑点保护）
-        
+
         // 轮询与最小等待
         POLL_INTERVAL: 200,               // waitFor* 内轮询间隔（毫秒）
         MIN_SLEEP_MS: 200,                // randomSleep 最少等待（毫秒）
-        
+
         // 其他等待时间
         CLOSE_DIALOG_WAIT: 2000,          // 关闭弹窗等待时间（毫秒）
         RETRY_WAIT: 3000,                 // 重试等待时间（毫秒）
@@ -77,14 +77,14 @@
     let todayTradeTarget = 0;      // 今日交易目标
     let consecutiveFailures = 0;   // 连续失败次数
     const MAX_CONSECUTIVE_FAILURES = 3; // 最大连续失败次数
-    
+
     // 速率倍数（1x, 3x, 5x）
     let speedMultiplier = 1;
-    
+
     // 交易代币对（两个代币都可以自定义）
     let baseToken = 'USDC';        // 基础币种（可替换）
     let targetToken = 'KOGE';      // 目标代币（可替换）
-    
+
     // 链与原生代币常量（单一来源：新增链或 Gas 代币只改此处）
     const CHAIN_OPTIONS = ['BNB', 'Optimism', 'Base', 'Arbitrum', 'Polygon', 'Solana'];
     let baseChain = 'BNB';         // 基础币种使用的链
@@ -92,38 +92,38 @@
     // 由「是否选择目标链」决定是否在 Stable 中选目标代币（目标链有值即启用）
     const NATIVE_TOKENS = ['BNB', 'SOL', 'ETH', 'AVAX', 'HYPE', 'SUI', 'POL', 'S']; // Gas 框中查找
     const ETH_CHAINS = ['Base', 'Optimism', 'Arbitrum', 'Ethereum'];
-    
+
     // 每日限额设置
     let enableDailyLimit = true;   // 是否启用每日限额
     let dailyLimitMin = 53;        // 最小限额
     let dailyLimitMax = 108;       // 最大限额
-    
+
     // 交易额限制设置
     let enableVolumeLimit = false;  // 是否启用交易额限制
     let volumeLimitTarget = 100000; // 交易额目标（美元）
     let currentVolume = 0;          // 当前交易额
     let lastVolumeCheck = 0;        // 上次检查时间
-    
+
     // 金额选项设置（用于随机选择）
     let amountOptions = {
         'MAX': true,
         '50%': true,
         '25%': true
     };
-    
+
     // 滑点保护设置
     let enableSlippageProtection = true;  // 是否启用滑点保护
     let maxSlippagePercent = 0.05;        // 最大允许滑点百分比（默认万分之五）
-    
+
     let stats = {
         successfulSwaps: 0,
         failedSwaps: 0,
         startTime: null,
         todayDate: null
     };
-    
+
     // ==================== 持久化存储 ====================
-    
+
     // 保存所有设置
     const saveAllSettings = () => {
         try {
@@ -152,7 +152,7 @@
             localStorage.setItem('tradegenius_settings', JSON.stringify(data));
         } catch (e) {}
     };
-    
+
     // 加载所有设置
     const loadAllSettings = () => {
         try {
@@ -195,7 +195,7 @@
         } catch (e) {}
         return false;
     };
-    
+
     // 获取当前配置快照（与 saveAllSettings 结构一致，用于预设）
     const getCurrentSettings = () => ({
         enableDailyLimit,
@@ -212,7 +212,7 @@
         enableSlippageProtection,
         maxSlippagePercent
     });
-    
+
     // 预设显示名称（与 预设123.MD 一致）
     const PRESET_NAMES = { 1: 'OP UU', 2: 'FIGHT BSC', 3: 'KOGE' };
     // 预设 1/2/3 内置默认参数（无保存数据时加载）
@@ -258,7 +258,7 @@
             return true;
         } catch (e) { return false; }
     };
-    
+
     const saveStats = () => {
         try {
             const data = {
@@ -272,7 +272,7 @@
             console.error('保存统计失败:', e);
         }
     };
-    
+
     const loadStats = () => {
         try {
             const saved = localStorage.getItem('tradegenius_stats');
@@ -307,15 +307,15 @@
     };
 
     // ==================== 工具函数 ====================
-    
+
     // 检查运行状态
     const checkRunning = () => {
         return isRunning;
     };
-    
+
     // 随机整数
     const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-    
+
     // 可中断的 sleep 函数
     const sleep = (ms) => new Promise(resolve => {
         const checkInterval = 100;
@@ -343,7 +343,7 @@
         const adjustedWait = Math.floor(wait / speedMultiplier);
         await sleep(Math.max(adjustedWait, CONFIG.MIN_SLEEP_MS));
     };
-    
+
     // 固定延迟（不受速率影响，用于 Confirm 等关键操作）
     const fixedRandomSleep = async (minMax) => {
         const [min, max] = minMax;
@@ -368,11 +368,11 @@
             UI.logEl.textContent = `${prefix} ${msg}\n` + UI.logEl.textContent.slice(0, CONFIG.LOG_MAX_CHARS);
         }
     };
-    
+
     // 初始化每日统计
     const initDailyStats = () => {
         const today = new Date().toDateString();
-        
+
         if (stats.todayDate !== today) {
             if (!loadStats()) {
                 stats.todayDate = today;
@@ -390,7 +390,7 @@
         }
         consecutiveFailures = 0;
     };
-    
+
     // 检查是否达到每日限额
     const checkDailyLimit = () => {
         if (!enableDailyLimit) return false; // 无限制模式
@@ -400,7 +400,7 @@
         }
         return false;
     };
-    
+
     // 扩展每日限额（用户手动重启时调用）
     const extendDailyLimit = () => {
         if (!enableDailyLimit) return; // 无限制模式不需要扩展
@@ -410,7 +410,7 @@
         log(`📈 扩展交易目标: ${oldTarget} → ${todayTradeTarget} (+${additionalTarget} 笔)`, 'success');
         saveStats();
     };
-    
+
     // 从金额选项中随机选择（只从用户选中的选项中选）
     const selectAmount = () => {
         const enabledAmounts = Object.keys(amountOptions).filter(k => amountOptions[k]);
@@ -423,24 +423,24 @@
     // 正确的交易页面 URL
     const TRADE_PAGE_URL = 'https://www.tradegenius.com/trade';
     const POINTS_PAGE_URL = 'https://www.tradegenius.com/points/you';
-    
+
     // 获取当前交易额（通过 iframe 加载 points 页面，等待渲染后读取）
     const fetchCurrentVolume = () => {
         return new Promise((resolve) => {
             log('📊 正在获取交易额...', 'info');
-            
+
             // 创建隐藏的 iframe
             const iframe = document.createElement('iframe');
             iframe.style.cssText = 'position: fixed; top: -9999px; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none;';
             iframe.src = POINTS_PAGE_URL;
-            
+
             let resolved = false;
             const cleanup = () => {
                 if (iframe.parentNode) {
                     iframe.parentNode.removeChild(iframe);
                 }
             };
-            
+
             const timeout = setTimeout(() => {
                 if (!resolved) {
                     resolved = true;
@@ -449,13 +449,13 @@
                     resolve(null);
                 }
             }, CONFIG.VOLUME_FETCH_TIMEOUT);
-            
+
             // iframe 加载完成后尝试读取
             iframe.onload = () => {
                 // 等待客户端渲染完成（多次尝试）
                 let attempts = 0;
                 const maxAttempts = 10;
-                
+
                 const tryRead = () => {
                     attempts++;
                     try {
@@ -467,7 +467,7 @@
                             }
                             throw new Error('无法访问 iframe 内容');
                         }
-                        
+
                         // 查找交易额 - 方法1: 新结构 Total Volume + 下方 $ 金额
                         // <div class="flex flex-col items-center gap-2">
                         //   <div class="text-genius-pink ...">Total Volume</div>
@@ -502,7 +502,7 @@
                                 }
                             }
                         }
-                        
+
                         // 方法2: 通过类名 text-3xl font-medium 直接查找金额
                         const amountEls = iframeDoc.querySelectorAll('div.text-3xl.font-medium');
                         for (const el of amountEls) {
@@ -523,7 +523,7 @@
                                 }
                             }
                         }
-                        
+
                         // 方法3: 旧结构兼容 - 查找包含 "SPOT VOL" 或 "RETRO" 的容器
                         const allDivs = iframeDoc.querySelectorAll('div');
                         for (const div of allDivs) {
@@ -551,7 +551,7 @@
                                 }
                             }
                         }
-                        
+
                         // 未找到，继续尝试
                         if (attempts < maxAttempts) {
                             setTimeout(tryRead, 500);
@@ -578,11 +578,11 @@
                         }
                     }
                 };
-                
+
                 // 首次等待 1 秒让页面渲染
                 setTimeout(tryRead, 1000);
             };
-            
+
             iframe.onerror = () => {
                 if (!resolved) {
                     resolved = true;
@@ -592,18 +592,18 @@
                     resolve(null);
                 }
             };
-            
+
             document.body.appendChild(iframe);
         });
     };
-    
+
     // 检查是否达到交易额限制
     const checkVolumeLimit = async () => {
         if (!enableVolumeLimit) return false;
-        
+
         // 每 5 笔交易检查一次，或者首次检查
         const shouldCheck = (stats.successfulSwaps % 5 === 0) || lastVolumeCheck === 0;
-        
+
         if (shouldCheck) {
             const volume = await fetchCurrentVolume();
             if (volume !== null && volume >= volumeLimitTarget) {
@@ -611,16 +611,16 @@
                 return true;
             }
         }
-        
+
         return false;
     };
-    
+
     // 检查是否在正确的交易页面
     const isOnTradePage = () => {
         const currentUrl = window.location.href;
         return currentUrl.startsWith(TRADE_PAGE_URL);
     };
-    
+
     // 导航到交易页面
     const navigateToTradePage = () => {
         log('🔀 检测到页面不正确，正在导航到交易页面...', 'warning');
@@ -668,10 +668,9 @@
     const AGGREGATORS_OFF = ['odos', 'kyberswap', 'openocean', 'lifi', 'uniswapv2', 'uniswapv3'];
     const AGGREGATORS_ON = ['okx', '0x', 'evmdirectpool', 'lfj', 'algebra', 've33'];
 
-    // 部署完成后添加代币到 Saved（与 添加代币到Saved.js 流程一致）
+    // 部署完成后添加代币到 Saved（仅 USDC、KOGE；先检测 Saved 页是否已全收藏，有则跳过）
     const DEPLOY_SAVED_STABLE = 'USDC';
     const DEPLOY_SAVED_SEARCH = 'KOGE';
-    const DEPLOY_SAVED_CA = '0xb2d97c4ed2d0ef452654f5cab3da3735b5e6f3ab';
     const DEPLOY_SAVED_WAIT_CLICK = 800;
     const DEPLOY_SAVED_WAIT_INPUT = 1200;
     const DEPLOY_SAVED_STAR_TIMEOUT = 10000;
@@ -845,168 +844,111 @@
     };
 
     async function runDeployAddToSaved(logDeploy) {
-        if (!DEPLOY_SAVED_CA) return;
         const getDialog = deploySavedGetDialog;
         const findChooseButtons = () => Array.from(document.querySelectorAll('button')).filter(b => {
             const text = (b.innerText || b.textContent || '').trim();
             const spanText = b.querySelector('span')?.innerText?.trim() || '';
             return (text === 'Choose' || spanText === 'Choose') && b.offsetParent !== null;
         });
-        const waitForDialogOpen = async (timeout) => {
+        const deployWaitFor = async (conditionFn, timeoutMs) => {
             const start = Date.now();
-            while (Date.now() - start < timeout) {
+            while (Date.now() - start < timeoutMs) {
                 if (!isDeployRunning) return false;
-                if (!!document.querySelector('[role="dialog"]')) return true;
+                try { if (conditionFn()) return true; } catch (e) { }
                 await deploySleep(DEPLOY_SAVED_POLL);
             }
             return false;
         };
-        const waitForTokenRow = async (tokenName, timeout) => {
-            const start = Date.now();
-            while (Date.now() - start < timeout) {
-                if (!isDeployRunning) return null;
-                const row = deploySavedFindRowByLogo(tokenName) || deploySavedFindRowByTokenName(tokenName);
-                if (row) return row;
-                await deploySleep(DEPLOY_SAVED_POLL);
-            }
-            return null;
+        const deployWaitForOrRefresh = async (conditionFn, timeoutMs, timeoutMsg) => {
+            const ok = await deployWaitFor(conditionFn, timeoutMs);
+            if (ok) return true;
+            logDeploy(timeoutMsg || '等待超时', 'error');
+            logDeploy('刷新网页，请重新点击「开始」', 'warning');
+            location.reload();
+            return false;
         };
         logDeploy('添加代币到 Saved：点击第二个 Choose…', 'info');
         const chooseBtns = findChooseButtons();
         const secondChoose = chooseBtns[1];
         if (!secondChoose) { logDeploy('未找到第二个 Choose', 'error'); return; }
         deploySavedClickEl(secondChoose);
-        await deploySleep(DEPLOY_SAVED_WAIT_CLICK);
-        const opened = await waitForDialogOpen(10000);
-        if (!opened) { logDeploy('代币弹窗未打开', 'error'); return; }
-        logDeploy('代币弹窗已打开，点击 Stable', 'info');
+        await deploySleep(300);
+        if (!(await deployWaitForOrRefresh(() => !!document.querySelector('[role="dialog"]'), 10000, '代币弹窗未打开'))) return;
+        logDeploy('代币弹窗已打开，先点 Saved 检测是否已收藏…', 'info');
+        const savedTab = deploySavedFindSavedTab();
+        if (!savedTab) { logDeploy('未找到 Saved 标签', 'error'); return; }
+        deploySavedClickEl(savedTab);
+        const savedListReady = () => {
+            const d = deploySavedGetDialog();
+            const hasRow = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE) || deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH);
+            const empty = (d.textContent || '').includes('Nothing here') || (d.textContent || '').includes('暂无');
+            return !!hasRow || empty;
+        };
+        if (!(await deployWaitForOrRefresh(savedListReady, 10000, 'Saved 列表未加载'))) return;
+        const rowUSDC = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE);
+        const rowKOGE = deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH);
+        const hasUSDC = rowUSDC && deploySavedIsStarSaved(rowUSDC);
+        const hasKOGE = rowKOGE && deploySavedIsStarSaved(rowKOGE);
+        if (hasUSDC && hasKOGE) {
+            logDeploy('Saved 已有 ' + DEPLOY_SAVED_STABLE + '、' + DEPLOY_SAVED_SEARCH + '，跳过收藏', 'success');
+            const closeBtn = deploySavedFindCloseButton();
+            if (closeBtn && closeBtn.offsetParent) { deploySavedClickEl(closeBtn); logDeploy('已关闭代币弹窗', 'success'); }
+            return;
+        }
+        logDeploy('Saved 缺少代币，开始补全收藏…', 'info');
         const stableTab = deploySavedFindStableTab();
         if (!stableTab) { logDeploy('未找到 Stable 标签', 'error'); return; }
         deploySavedClickEl(stableTab);
-        await deploySleep(DEPLOY_SAVED_WAIT_CLICK);
-        let row = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE);
-        if (!row) {
-            await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
-            row = await waitForTokenRow(DEPLOY_SAVED_STABLE, 8000);
-        }
-        if (!row) { logDeploy('未找到 ' + DEPLOY_SAVED_STABLE + ' 行', 'error'); return; }
-        logDeploy('收藏 ' + DEPLOY_SAVED_STABLE + '（点星星）', 'info');
-        deploySavedClickStarInRow(row);
-        let ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE));
-        if (!ok && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
-            for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
-                logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄，' + (DEPLOY_SAVED_RETRY_DELAY / 1000) + 's 后重试点星星（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
-                await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
-                row = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE);
-                if (row) {
-                    deploySavedClickStarInRow(row);
-                    logDeploy('已再次点击 ' + DEPLOY_SAVED_STABLE + ' 星星', 'info');
-                    await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+        const stableListReady = () => !!(deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE));
+        if (!(await deployWaitForOrRefresh(stableListReady, 10000, 'Stable 列表未加载'))) return;
+        if (!hasUSDC) {
+            let row = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE);
+            if (!row) { logDeploy('未找到 ' + DEPLOY_SAVED_STABLE + ' 行', 'error'); }
+            else {
+                logDeploy('收藏 ' + DEPLOY_SAVED_STABLE + '（点星星）', 'info');
+                deploySavedClickStarInRow(row);
+                let ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE));
+                if (!ok && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
+                    for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
+                        logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄，重试点星星（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
+                        row = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE);
+                        if (row) { deploySavedClickStarInRow(row); logDeploy('已再次点击 ' + DEPLOY_SAVED_STABLE + ' 星星', 'info'); }
+                        if (!(await deployWaitForOrRefresh(() => { const r = deploySavedFindRowByLogo(DEPLOY_SAVED_STABLE) || deploySavedFindRowByTokenName(DEPLOY_SAVED_STABLE); return r && deploySavedIsStarSaved(r); }, 6000, DEPLOY_SAVED_STABLE + ' 星星未变黄'))) return;
+                        ok = true; break;
+                    }
                 }
-                if (ok) break;
+                if (!ok) logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄，继续下一步', 'warning');
             }
         }
-        if (!ok) logDeploy(DEPLOY_SAVED_STABLE + ' 星星未变黄，继续下一步', 'warning');
         const searchInput = deploySavedFindSearchInput();
-        if (!searchInput || !searchInput.offsetParent) { logDeploy('未找到搜索框', 'error'); return; }
-        logDeploy('搜索 ' + DEPLOY_SAVED_SEARCH + '…', 'info');
-        deploySetInput(searchInput, DEPLOY_SAVED_SEARCH);
-        await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
-        row = await waitForTokenRow(DEPLOY_SAVED_SEARCH, DEPLOY_SAVED_SEARCH_TIMEOUT);
-        if (!row) {
-            await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+        if (!hasKOGE && searchInput && searchInput.offsetParent) {
+            logDeploy('搜索 ' + DEPLOY_SAVED_SEARCH + '…', 'info');
             deploySetInput(searchInput, DEPLOY_SAVED_SEARCH);
-            await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
-            row = await waitForTokenRow(DEPLOY_SAVED_SEARCH, 8000);
-        }
-        if (row) {
-            logDeploy('收藏 ' + DEPLOY_SAVED_SEARCH + '（点星星）', 'info');
-            deploySavedClickStarInRow(row);
-            ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH));
-            if (!ok && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
-                for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
-                    logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄，' + (DEPLOY_SAVED_RETRY_DELAY / 1000) + 's 后重试点星星（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
-                    await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
-                    row = deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH);
-                    if (row) {
-                        deploySavedClickStarInRow(row);
-                        logDeploy('已再次点击 ' + DEPLOY_SAVED_SEARCH + ' 星星', 'info');
-                        await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
+            const kogeRowReady = () => !!(deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH));
+            let kogeReady = await deployWaitFor(kogeRowReady, DEPLOY_SAVED_SEARCH_TIMEOUT);
+            if (!kogeReady) {
+                logDeploy(DEPLOY_SAVED_SEARCH + ' 未出现，重新输入再等一次…', 'info');
+                deploySetInput(searchInput, DEPLOY_SAVED_SEARCH);
+                kogeReady = await deployWaitForOrRefresh(kogeRowReady, 8000, DEPLOY_SAVED_SEARCH + ' 行未出现');
+                if (!kogeReady) return;
+            }
+            let row = deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH);
+            if (row) {
+                logDeploy('收藏 ' + DEPLOY_SAVED_SEARCH + '（点星星）', 'info');
+                deploySavedClickStarInRow(row);
+                let ok = await deploySavedWaitForStarSaved(() => deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH));
+                if (!ok && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
+                    for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
+                        logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄，重试点星星（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
+                        row = deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH);
+                        if (row) { deploySavedClickStarInRow(row); logDeploy('已再次点击 ' + DEPLOY_SAVED_SEARCH + ' 星星', 'info'); }
+                        if (!(await deployWaitForOrRefresh(() => { const r = deploySavedFindRowByLogo(DEPLOY_SAVED_SEARCH) || deploySavedFindRowByTokenName(DEPLOY_SAVED_SEARCH); return r && deploySavedIsStarSaved(r); }, 6000, DEPLOY_SAVED_SEARCH + ' 星星未变黄'))) return;
+                        ok = true; break;
                     }
-                    if (ok) break;
                 }
+                if (!ok) logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄，继续下一步', 'warning');
             }
-            if (!ok) logDeploy(DEPLOY_SAVED_SEARCH + ' 星星未变黄，继续下一步（搜索 CA）', 'warning');
-        }
-        logDeploy('搜索 CA…', 'info');
-        deploySetInput(searchInput, DEPLOY_SAVED_CA);
-        await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
-        const reStable = new RegExp('\\b' + (DEPLOY_SAVED_STABLE || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-        const reSearch = new RegExp('\\b' + (DEPLOY_SAVED_SEARCH || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-        const findCARow = () => {
-            const rows = getDialog().querySelectorAll('div[class*="cursor-pointer"]');
-            for (const r of Array.from(rows)) {
-                if (!r.offsetParent || !r.querySelector('svg[class*="lucide-star"]')) continue;
-                const text = (r.textContent || '').trim();
-                if (reStable.test(text) || reSearch.test(text)) continue;
-                if ((text || '').includes('$')) return r;
-            }
-            return null;
-        };
-        let deadline = Date.now() + DEPLOY_SAVED_SEARCH_TIMEOUT;
-        let caRow = null;
-        while (Date.now() < deadline) {
-            if (!isDeployRunning) return;
-            caRow = findCARow();
-            if (caRow) break;
-            await deploySleep(DEPLOY_SAVED_POLL);
-        }
-        if (!caRow) {
-            await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
-            deploySetInput(searchInput, DEPLOY_SAVED_CA);
-            await deploySleep(DEPLOY_SAVED_WAIT_INPUT);
-            deadline = Date.now() + 8000;
-            while (Date.now() < deadline) {
-                if (!isDeployRunning) return;
-                caRow = findCARow();
-                if (caRow) break;
-                await deploySleep(DEPLOY_SAVED_POLL);
-            }
-        }
-        if (caRow) {
-            logDeploy('收藏 CA 代币（点星星）', 'info');
-            deploySavedClickStarInRow(caRow);
-            const getCARow = () => {
-                const rows = getDialog().querySelectorAll('div[class*="cursor-pointer"]');
-                for (const r of Array.from(rows)) {
-                    if (!r.offsetParent || !r.querySelector('svg[class*="lucide-star"]')) continue;
-                    const text = (r.textContent || '').trim();
-                    if (reStable.test(text) || reSearch.test(text)) continue;
-                    if ((text || '').includes('$')) return r;
-                }
-                return null;
-            };
-            let caOk = await deploySavedWaitForStarSaved(getCARow);
-            if (!caOk && DEPLOY_SAVED_MAX_STAR_RETRIES > 0) {
-                for (let retry = 1; retry <= DEPLOY_SAVED_MAX_STAR_RETRIES; retry++) {
-                    logDeploy('CA 代币星星未变黄，' + (DEPLOY_SAVED_RETRY_DELAY / 1000) + 's 后重试点星星（' + retry + '/' + DEPLOY_SAVED_MAX_STAR_RETRIES + '）…', 'info');
-                    await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
-                    caRow = findCARow();
-                    if (caRow) {
-                        deploySavedClickStarInRow(caRow);
-                        logDeploy('已再次点击 CA 代币星星', 'info');
-                        await deploySleep(DEPLOY_SAVED_RETRY_DELAY);
-                    }
-                    if (caOk) break;
-                }
-            }
-            if (!caOk) logDeploy('CA 代币星星未变黄，继续下一步', 'warning');
-        }
-        const savedTab = deploySavedFindSavedTab();
-        if (savedTab) {
-            deploySavedClickEl(savedTab);
-            await deploySleep(1500);
-        }
+        } else if (!hasKOGE) { logDeploy('未找到搜索框，跳过 ' + DEPLOY_SAVED_SEARCH, 'warning'); }
         const closeBtn = deploySavedFindCloseButton();
         if (closeBtn && closeBtn.offsetParent) {
             deploySavedClickEl(closeBtn);
@@ -1063,9 +1005,13 @@
                     logDeploy('未找到多链选择框', 'warning');
                 }
                 const fillVisibleInputs = () => {
-                    const inputs = document.querySelectorAll('input[class*="border-genius-blue"], input[class*="bg-genius-blue/40"]');
+                    let inputs = document.querySelectorAll('input[class*="bg-genius-blue/40"][class*="text-center"]');
+                    if (!inputs.length) inputs = document.querySelectorAll('input[class*="border-genius-blue"], input[class*="bg-genius-blue/40"]');
                     for (const inp of Array.from(inputs)) {
                         if (!inp.offsetParent) continue;
+                        const container = inp.closest('div[class*="border-genius-blue"]') || inp.closest('div.w-full');
+                        const isSolanaInput = container && container.querySelector('img[src*="solana"]');
+                        if (isSolanaInput) { deploySetInput(inp, '0.001'); continue; }
                         const isGwei = (inp.className || '').includes('text-center') && (inp.closest('div')?.textContent || '').toLowerCase().includes('priority');
                         if (chain.evm && isGwei) { deploySetInput(inp, '0.01'); continue; }
                         deploySetInput(inp, '0.01');
@@ -1188,7 +1134,7 @@
             const dialogStillOpen = !!document.querySelector('[role="dialog"]');
             if (dialogStillOpen) logDeploy('设置弹窗未关闭，继续执行添加代币', 'warning');
 
-            if (checkDeployRunning() && DEPLOY_SAVED_CA) {
+            if (checkDeployRunning()) {
                 await runDeployAddToSaved(logDeploy);
             }
 
@@ -1208,7 +1154,7 @@
     }
 
     // ==================== DOM 查找函数 ====================
-    
+
     // 查找 Choose 按钮（参考GitHub脚本）
     const findChooseButtons = () => {
         return Array.from(document.querySelectorAll('button'))
@@ -1252,11 +1198,11 @@
     // 在弹窗内查找代币行（根据实际 HTML 结构优化）
     const findTokenRows = () => {
         const dialog = getDialog();
-        
+
         // 根据实际 HTML 结构：代币行特征是 flex items-center justify-between ... cursor-pointer
         // 包含 md:hover:bg-genius-blue 类
         const rows = [];
-        
+
         // 方法1: 精确匹配代币行（包含 hover:bg-genius-blue 或 md:hover:bg-genius-blue）
         const method1 = dialog.querySelectorAll('div[class*="hover:bg-genius-blue"]');
         method1.forEach(row => {
@@ -1268,7 +1214,7 @@
                 }
             }
         });
-        
+
         // 方法2: 如果方法1找不到，用更宽泛的选择器
         if (rows.length === 0) {
             const method2 = dialog.querySelectorAll('div[class*="cursor-pointer"]');
@@ -1283,16 +1229,16 @@
                 }
             });
         }
-        
+
         return rows;
     };
 
     // 查找标签（通用函数）
     const findTab = (tabName) => {
         const dialog = getDialog();
-        
+
         // 方法1: 在 tab 行中查找
-        const tabRow = dialog.querySelector('div.flex.flex-row.w-full.gap-3') || 
+        const tabRow = dialog.querySelector('div.flex.flex-row.w-full.gap-3') ||
                       dialog.querySelector('div[class*="gap-3"][class*="flex-row"]');
         if (tabRow) {
             for (const tab of tabRow.querySelectorAll('div')) {
@@ -1301,7 +1247,7 @@
                 }
             }
         }
-        
+
         // 方法2: 遍历弹窗内所有 div
         for (const div of dialog.querySelectorAll('div')) {
             const text = (div.textContent || '').trim();
@@ -1312,16 +1258,16 @@
                 }
             }
         }
-        
+
         return null;
     };
-    
+
     // 查找 Saved 标签
     const findSavedTab = () => findTab('Saved');
-    
+
     // 查找 Stable 标签
     const findStableTab = () => findTab('Stable');
-    
+
     // 查找 Gas 标签
     const findGasTab = () => findTab('Gas');
 
@@ -1336,7 +1282,7 @@
         }
         return false;
     };
-    
+
     // 等待弹窗关闭
     const waitForDialogClose = async (timeout = CONFIG.DIALOG_CLOSE_TIMEOUT) => {
         const start = Date.now();
@@ -1346,13 +1292,13 @@
         }
         return false;
     };
-    
+
     // 等待元素出现
     const waitForElement = async (selectorOrFn, timeout = CONFIG.DIALOG_OPEN_TIMEOUT) => {
         const start = Date.now();
         while (Date.now() - start < timeout) {
-            const el = typeof selectorOrFn === 'function' 
-                ? selectorOrFn() 
+            const el = typeof selectorOrFn === 'function'
+                ? selectorOrFn()
                 : document.querySelector(selectorOrFn);
             if (el) return el;
             await sleep(CONFIG.POLL_INTERVAL);
@@ -1363,16 +1309,16 @@
     // 点击元素
     const clickElement = async (element) => {
         if (!element) throw new Error('元素不存在');
-        
+
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         await sleep(CONFIG.POLL_INTERVAL);
-        
+
         // 按钮元素直接使用原生 click
         if (element.tagName === 'BUTTON' || element.tagName === 'A') {
             element.click();
             return;
         }
-        
+
         // 其他元素使用事件模拟
         ['mousedown', 'mouseup', 'click'].forEach(type => {
             element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
@@ -1426,7 +1372,7 @@
         'POL': 'polygon',
         'SOL': 'solana'
     };
-    
+
     // 检测代币行中是否包含指定的链
     const hasChainInRow = (row, chainName) => {
         const imageKeyword = CHAIN_IMAGE_MAP[chainName];
@@ -1581,55 +1527,55 @@
      */
     async function selectToken(tokenSymbol) {
         log(`查找代币: ${tokenSymbol}...`, 'info');
-        
+
         // 先等待代币行元素出现，而不是固定延迟
         const rowsAppeared = await waitForElement(() => {
             const rows = findTokenRows();
             return rows.length > 0 ? rows : null;
         }, CONFIG.TOKEN_LIST_APPEAR_TIMEOUT);
-        
+
         if (!rowsAppeared) {
             throw new Error(`代币列表未加载: ${tokenSymbol}`);
         }
-        
+
         let targetRow = null;
         const isTargetToken = (tokenSymbol === targetToken || tokenSymbol === 'TARGET');
-        
+
         for (let attempt = 0; attempt < CONFIG.maxRetryToken; attempt++) {
             const rows = findTokenRows();
-            
+
             for (const row of rows) {
                 const text = row.textContent || '';
                 const hasPrice = text.includes('$');
-                
+
                 const baseTokenUpper = baseToken.toUpperCase();
-                if (tokenSymbol.toUpperCase() === baseTokenUpper && 
-                    text.toUpperCase().includes(baseTokenUpper) && 
+                if (tokenSymbol.toUpperCase() === baseTokenUpper &&
+                    text.toUpperCase().includes(baseTokenUpper) &&
                     !matchesTargetToken(text) && hasPrice) {
                     targetRow = row;
                     log(`✓ 找到 ${baseToken}`, 'success');
                     break;
                 }
-                
-                if (isTargetToken && matchesTargetToken(text) && 
+
+                if (isTargetToken && matchesTargetToken(text) &&
                     !text.toUpperCase().includes(baseTokenUpper) && hasPrice) {
                     targetRow = row;
                     log(`✓ 找到 ${targetToken}`, 'success');
                     break;
                 }
             }
-            
+
             if (targetRow) break;
             await randomSleep([600, 1000]);
         }
-        
+
         if (!targetRow) {
             throw new Error(`未找到代币: ${tokenSymbol}`);
         }
-        
+
         // 点击代币行
         await clickElement(targetRow);
-        
+
         const closed = await waitForDialogClose(CONFIG.DIALOG_CLOSE_TIMEOUT);
         if (!closed) {
             log('⚠️ 弹窗未关闭，重试点击...', 'warning');
@@ -1645,7 +1591,7 @@
                 }
             }
         }
-        
+
         log(`✓ ${tokenSymbol} 已选择`, 'success');
         return true;
     }
@@ -1659,20 +1605,20 @@
      */
     async function selectTokenByChain(tokenSymbol, chainSymbol) {
         log(`查找代币: ${tokenSymbol} (${chainSymbol} 链)...`, 'info');
-        
+
         // 先等待代币行元素出现，而不是固定延迟
         const rowsAppeared = await waitForElement(() => {
             const rows = findTokenRows();
             return rows.length > 0 ? rows : null;
         }, CONFIG.TOKEN_LIST_APPEAR_TIMEOUT);
-        
+
         if (!rowsAppeared) {
             throw new Error(`代币列表未加载: ${tokenSymbol}`);
         }
-        
+
         const isBaseToken = tokenSymbol.toUpperCase() === baseToken.toUpperCase();
         const isTargetToken = tokenSymbol.toUpperCase() === targetToken.toUpperCase();
-        
+
         // 查找带有指定链标识的代币行
         let targetRow = null;
         for (let attempt = 0; attempt < CONFIG.maxRetryToken; attempt++) {
@@ -1680,7 +1626,7 @@
             for (const row of rows) {
                 const text = row.textContent || '';
                 const upperText = text.toUpperCase();
-                
+
                 // 先匹配代币
                 let tokenMatched = false;
                 const baseTokenUpper = baseToken.toUpperCase();
@@ -1691,7 +1637,7 @@
                 } else {
                     tokenMatched = upperText.includes(tokenSymbol.toUpperCase()) && text.includes('$');
                 }
-                
+
                 // 再匹配链标识
                 if (tokenMatched && hasChainInRow(row, chainSymbol)) {
                     targetRow = row;
@@ -1702,21 +1648,21 @@
             if (targetRow) break;
             await fixedRandomSleep([600, 1000]);
         }
-        
+
         if (!targetRow) {
             throw new Error(`未找到 ${tokenSymbol} (${chainSymbol} 链)`);
         }
-        
+
         // 点击代币行即可选中
         await clickElement(targetRow);
-        
+
         // 等待弹窗关闭（最多 5 秒）
         await waitForDialogClose(CONFIG.DIALOG_CLOSE_TIMEOUT);
-        
+
         log(`✓ ${tokenSymbol} (${chainSymbol} 链) 已选择`, 'success');
         return true;
     }
-    
+
     // 用 token logo URL 定位代币行（数据驱动，参考设置滑点.md：不依赖 DOM 文案/class，减少点错 USDC/USDT）
     // 页面用 /static/tokenlogos/usdt.png、usdc.png 等渲染，以此为唯一标识定位一行。
     function findTokenRowByLogo(tokenSymbol) {
@@ -1761,13 +1707,13 @@
     // 选择代币并选择链（第二个 Choose 用）：点击代币行后会弹出链选择菜单，需要再点击链按钮
     async function selectTokenWithChain(tokenSymbol, chainSymbol) {
         log(`查找代币: ${tokenSymbol} (链: ${chainSymbol})...`, 'info');
-        
+
         const isBaseToken = tokenSymbol.toUpperCase() === baseToken.toUpperCase();
         const isTargetToken = tokenSymbol.toUpperCase() === targetToken.toUpperCase();
         const baseTokenUpper = baseToken.toUpperCase();
         const tokenUpper = tokenSymbol.toUpperCase();
         const needExactSymbol = (isBaseToken || isTargetToken) && (baseTokenUpper !== targetToken.toUpperCase());
-        
+
         let targetRow = null;
         let useNativeClick = false;
         let foundByLogo = false;
@@ -1792,14 +1738,14 @@
                 }
             }
         }
-        
+
         if (!targetRow) {
             const rowsAppeared = await waitForElement(() => {
                 const rows = findTokenRows();
                 return rows.length > 0 ? rows : null;
             }, CONFIG.TOKEN_LIST_APPEAR_TIMEOUT);
             if (!rowsAppeared) throw new Error(`代币列表未加载: ${tokenSymbol}`);
-            
+
             for (let attempt = 0; attempt < CONFIG.maxRetryToken; attempt++) {
                 const rows = findTokenRows();
                 for (const row of rows) {
@@ -1823,9 +1769,9 @@
                 await fixedRandomSleep([800, 1200]);
             }
         }
-        
+
         if (!targetRow) throw new Error(`未找到代币: ${tokenSymbol}`);
-        
+
         let rowUsed = targetRow;
         if (useNativeClick) {
             const rowToClick = foundByLogo
@@ -1899,10 +1845,10 @@
         } else {
             await clickElementAtCenter(targetRow);
         }
-        
+
         const targetRowRect = rowUsed.getBoundingClientRect();
         await sleep(CONFIG.UI_STABLE_WAIT);
-        
+
         let chainButton = null;
         const chainSearchStart = Date.now();
         while (Date.now() - chainSearchStart < CONFIG.CHAIN_SEARCH_TIMEOUT) {
@@ -1921,7 +1867,7 @@
             if (chainButton) break;
             await sleep(CONFIG.UI_STABLE_WAIT);
         }
-        
+
         if (chainButton) {
             await clickElement(chainButton);
             log(`✓ 已选择 ${chainSymbol} 链`, 'success');
@@ -1929,7 +1875,7 @@
         } else {
             log(`⚠️ 未找到 ${chainSymbol} 链按钮`, 'warning');
         }
-        
+
         log(`✓ ${tokenSymbol} (${chainSymbol} 链) 已选择`, 'success');
         return true;
     }
@@ -1940,7 +1886,7 @@
         const classes = tab.className || '';
         return classes.includes('text-genius-cream') && !classes.includes('text-genius-cream/60');
     };
-    
+
     // 通用点击标签函数
     async function clickTab(tabName, findFn) {
         // 先检查标签是否已激活
@@ -1949,12 +1895,12 @@
             log(`✓ ${tabName} 标签已激活`, 'success');
             return;
         }
-        
+
         // 点击标签
         if (initialTab) {
             await clickElement(initialTab);
         }
-        
+
         const startTime = Date.now();
         while (Date.now() - startTime < CONFIG.TAB_ACTIVATE_TIMEOUT) {
             const tab = findFn();
@@ -1965,20 +1911,20 @@
             }
             await sleep(CONFIG.POLL_INTERVAL);
         }
-        
+
         log(`⚠️ ${tabName} 标签激活超时`, 'warning');
     }
-    
+
     // 点击 Saved 标签
     async function clickSaved() {
         await clickTab('Saved', findSavedTab);
     }
-    
+
     // 点击 Stable 标签
     async function clickStable() {
         await clickTab('Stable', findStableTab);
     }
-    
+
     // 点击 Gas 标签
     async function clickGas() {
         await clickTab('Gas', findGasTab);
@@ -1996,12 +1942,12 @@
     async function selectTokenByType(tokenSymbol, chainSymbol, options = {}) {
         const { isBaseToken = false, requireChain = false } = options;
         const tokenUpper = tokenSymbol.toUpperCase();
-        
+
         if (NATIVE_TOKENS.includes(tokenUpper)) {
             // 原生代币（BNB, SOL, ETH, AVAX, HYPE, SUI, POL, S）在 Gas 框中查找
             await clickGas();
             if (!checkRunning()) return false;
-            
+
             // ETH 需要多链选择
             if (tokenUpper === 'ETH' && ETH_CHAINS.includes(chainSymbol)) {
                 await selectTokenWithChain(tokenSymbol, chainSymbol);
@@ -2018,7 +1964,7 @@
             // 其他代币（如 USDC、KOGE、FIGHT 等）在 Saved 中
             await clickSaved();
             if (!checkRunning()) return false;
-            
+
             // 判断是否需要链选择
             if (requireChain || (isBaseToken && chainSymbol)) {
                 await selectTokenWithChain(tokenSymbol, chainSymbol);
@@ -2026,7 +1972,7 @@
                 await selectToken(tokenSymbol);
             }
         }
-        
+
         return true;
     }
 
@@ -2037,19 +1983,19 @@
             .filter(b => b.offsetParent !== null)
             .find(b => (b.innerText || b.textContent || '').trim().toUpperCase() === match) || null;
     };
-    
+
     // 点击金额按钮（支持 25%, 50%, MAX）
     async function clickAmount(amountText = 'MAX') {
         log(`查找 ${amountText} 按钮...`, 'info');
-        
+
         let btn = findAmountButton(amountText);
-        
+
         if (btn && btn.disabled) {
             log(`${amountText} 按钮被禁用，等待...`, 'warning');
             await sleep(CONFIG.CLOSE_DIALOG_WAIT);
             btn = findAmountButton(amountText);
         }
-        
+
         if (!btn || btn.disabled) {
             // 如果找不到指定的，尝试 MAX
             if (amountText !== 'MAX') {
@@ -2060,7 +2006,7 @@
                 throw new Error(`${amountText} 按钮不可用`);
             }
         }
-        
+
         await clickElement(btn);
         log(`✓ ${amountText} 已点击`, 'success');
         await randomSleep(CONFIG.waitAfterMax);
@@ -2072,27 +2018,27 @@
      */
     async function clickSecondChoose() {
         if (!checkRunning()) return false;
-        
+
         const chooseBtns = findChooseButtons();
         if (chooseBtns.length === 0) {
             log('⚠️ 未找到第二个 Choose 按钮', 'warning');
             return false;
         }
-        
+
         log('点击第二个 Choose (接收)', 'info');
         await clickElement(chooseBtns[0]);
-        
+
         const dialogOpened = await waitForDialogOpen(CONFIG.DIALOG_OPEN_TIMEOUT);
         if (!dialogOpened) {
             log('⚠️ 弹窗未打开', 'warning');
             return false;
         }
-        
+
         return true;
     }
 
     // ==================== 滑点保护 ====================
-    
+
     /**
      * 获取代币价格
      * @returns {Object} {price1, price2} 代币1和代币2的价格
@@ -2101,10 +2047,10 @@
         try {
             // 查找所有价格显示元素（包含 $ 符号的 div）
             const priceDivs = document.querySelectorAll('div.text-genius-cream\\/60');
-            
+
             let price1 = null;
             let price2 = null;
-            
+
             priceDivs.forEach(div => {
                 const text = div.textContent.trim();
                 if (text.startsWith('$')) {
@@ -2125,14 +2071,14 @@
                     }
                 }
             });
-            
+
             return { price1, price2 };
         } catch (e) {
             log(`⚠️ 获取价格失败: ${e.message}`, 'warning');
             return { price1: null, price2: null };
         }
     }
-    
+
     /**
      * 计算滑点百分比
      * @param {number} price1 - 代币1价格
@@ -2144,17 +2090,17 @@
         const slippage = Math.abs(price1 - price2) / price1 * 100;
         return Math.round(slippage * 100) / 100; // 保留2位小数
     }
-    
+
     /**
      * 点击 Refresh 按钮刷新报价
      * @returns {Promise<boolean>} 是否成功
      */
     async function clickRefreshButton() {
         const refreshBtn = Array.from(document.querySelectorAll('button')).find(btn => {
-            return btn.textContent.includes('Refresh') || 
+            return btn.textContent.includes('Refresh') ||
                    btn.querySelector('svg.lucide-refresh-ccw');
         });
-        
+
         if (refreshBtn) {
             await clickElement(refreshBtn);
             log('🔄 点击 Refresh 刷新报价', 'info');
@@ -2163,7 +2109,7 @@
         }
         return false;
     }
-    
+
     // 等待价格元素出现
     /**
      * 等待价格元素出现并获取价格
@@ -2181,7 +2127,7 @@
         }
         return { price1: null, price2: null };
     }
-    
+
     // 检测滑点并处理（返回 true 表示可以继续交易，false 表示需要刷新页面）
     /**
      * 检查滑点并处理
@@ -2190,18 +2136,18 @@
      */
     async function checkSlippageAndHandle() {
         if (!enableSlippageProtection) return true;
-        
+
         const maxRetries = 3;
-        
+
         for (let retry = 0; retry < maxRetries; retry++) {
             // 等待价格元素出现（最多等待 10 秒）
             log('等待价格加载...', 'info');
             const { price1, price2 } = await waitForPrices(CONFIG.PRICE_LOAD_TIMEOUT);
-            
+
             // 价格加载超时或无法获取
             if (price1 === null || price2 === null) {
                 log(`⚠️ 价格加载超时 (${retry + 1}/${maxRetries})`, 'warning');
-                
+
                 if (retry < maxRetries - 1) {
                     // 还有重试机会，点击 Refresh
                     const refreshed = await clickRefreshButton();
@@ -2214,22 +2160,22 @@
                 log(`❌ 连续 ${maxRetries} 次价格加载失败，刷新页面重新开始`, 'error');
                 return false;
             }
-            
+
             const slippage = calculateSlippage(price1, price2);
-            
+
             if (slippage === null) {
                 log('⚠️ 无法计算滑点，跳过检测', 'warning');
                 return true;
             }
-            
+
             if (slippage <= maxSlippagePercent) {
                 log(`✓ 滑点检测通过: ${slippage}% ≤ ${maxSlippagePercent}% ($${price1.toFixed(2)} → $${price2.toFixed(2)})`, 'success');
                 return true;
             }
-            
+
             // 滑点过大
             log(`⚠️ 滑点过大: ${slippage}% > ${maxSlippagePercent}% ($${price1.toFixed(2)} → $${price2.toFixed(2)})`, 'warning');
-            
+
             if (retry < maxRetries - 1) {
                 // 还有重试机会，点击 Refresh
                 const refreshed = await clickRefreshButton();
@@ -2239,7 +2185,7 @@
                 log(`刷新报价中... (${retry + 1}/${maxRetries})`, 'info');
             }
         }
-        
+
         // 连续 3 次滑点过大，触发页面刷新
         log(`❌ 连续 ${maxRetries} 次滑点过大，刷新页面重新开始`, 'error');
         return false; // 返回 false 触发页面刷新逻辑
@@ -2260,12 +2206,12 @@
             'span[class*="error"]',
             'span[class*="Error"]'
         ];
-        
+
         for (const selector of errorSelectors) {
             const elements = document.querySelectorAll(selector);
             for (const el of elements) {
                 const text = (el.textContent || '').toLowerCase();
-                if (text.includes('error') || text.includes('失败') || text.includes('错误') || 
+                if (text.includes('error') || text.includes('失败') || text.includes('错误') ||
                     text.includes('failed') || text.includes('revert')) {
                     if (el.offsetParent !== null) {
                         return true;
@@ -2275,7 +2221,7 @@
         }
         return false;
     };
-    
+
     /**
      * 点击 Confirm 按钮
      * 包含持续检测、观察期验证、错误处理和自动重试机制
@@ -2283,46 +2229,46 @@
      */
     async function clickConfirm() {
         log('等待 Confirm 按钮出现...', 'info');
-        
+
         let refreshCount = 0;
         const maxRefreshAttempts = 3;
         const maxWaitTime = CONFIG.CONFIRM_WAIT_TIMEOUT;
         const observationPeriod = CONFIG.OBSERVATION_PERIOD;
         const startTime = Date.now();
-        
+
         let buttonDisappearedTime = null; // 按钮消失的时间
         let hasClicked = false; // 是否已点击过
         let observationEndLogged = false; // 是否已打印观察期结束日志
         let lastLogTime = 0; // 上次打印日志的时间（用于降低日志频率）
         const logInterval = 2000; // 日志间隔（2秒）
-        
+
         while (Date.now() - startTime < maxWaitTime) {
             if (!checkRunning()) return false;
-            
+
             // 优先检查1: 交易确认弹窗是否出现（最可靠的点击成功标志）
             const closeBtn = findCloseButton();
             if (closeBtn && closeBtn.offsetParent !== null) {
                 log('✓ 交易确认弹窗已出现，点击成功', 'success');
                 return true;
             }
-            
+
             // 检查是否有错误状态（优先处理错误）
             if (hasError()) {
                 log('❌ 检测到错误状态，立即处理', 'error');
-                
+
                 if (refreshCount < maxRefreshAttempts) {
                     refreshCount++;
                     log(`🔄 尝试刷新报价 (${refreshCount}/${maxRefreshAttempts})...`, 'info');
-                    
+
                     try {
                         await clickRefreshButton();
                         await fixedRandomSleep(CONFIG.REFRESH_WAIT_MS);
-                        
+
                         // 重置状态
                         buttonDisappearedTime = null;
                         hasClicked = false;
                         observationEndLogged = false;
-                        
+
                         // 刷新后检查错误是否消失
                         await sleep(500);
                         if (hasError()) {
@@ -2345,11 +2291,11 @@
                     return 'REFRESH_PAGE'; // 特殊返回值，触发页面刷新
                 }
             }
-            
+
             // 检测 Confirm 按钮状态
             const confirmBtn = findConfirmButton();
             const buttonExists = confirmBtn && confirmBtn.offsetParent !== null;
-            
+
             if (buttonExists) {
                 // 按钮存在
                 if (buttonDisappearedTime !== null) {
@@ -2359,16 +2305,16 @@
                     hasClicked = false; // 重置点击状态，允许重新点击
                     observationEndLogged = false; // 重置日志标志
                 }
-                
+
                 // 检查按钮是否可点击
-                const isDisabled = confirmBtn.disabled || 
+                const isDisabled = confirmBtn.disabled ||
                                    confirmBtn.classList.contains('disabled') ||
                                    confirmBtn.style.pointerEvents === 'none';
-                
+
                 // 检查按钮是否在 loading 状态（有 animate-spin 类）
                 const isLoading = confirmBtn.querySelector('svg.animate-spin') !== null ||
                                  confirmBtn.querySelector('.animate-spin') !== null;
-                
+
                 // 读取按钮信息（用于调试）- 只在首次点击时打印
                 if (!hasClicked) {
                     const buttonText = (confirmBtn.innerText || '').trim();
@@ -2380,7 +2326,7 @@
                     };
                     log(`📋 Confirm 按钮信息: ${JSON.stringify(buttonInfo)}`, 'info');
                 }
-                
+
                 if (!isDisabled && !isLoading) {
                     // 按钮可点击，立即点击（无论之前是否点击过）
                     try {
@@ -2423,7 +2369,7 @@
                 } else {
                     // 在观察期内
                     const disappearedDuration = Date.now() - buttonDisappearedTime;
-                    
+
                     if (disappearedDuration >= observationPeriod) {
                         // 观察期结束，按钮仍消失
                         // 只在第一次检测到观察期结束时打印日志
@@ -2436,39 +2382,39 @@
                     }
                 }
             }
-            
+
             // 短暂等待后继续检测
             await sleep(200);
         }
-        
+
         // 超时处理
         log('⚠️ Confirm 按钮等待超时，检查最终状态...', 'warning');
-        
+
         // 优先检查确认弹窗
         const finalCloseBtn = findCloseButton();
         if (finalCloseBtn && finalCloseBtn.offsetParent !== null) {
             log('✓ 交易确认弹窗已出现，点击成功', 'success');
             return true;
         }
-        
+
         // 检查是否有错误（优先处理错误）
         if (hasError()) {
             log('❌ 超时且检测到错误状态，触发页面刷新', 'error');
             return 'REFRESH_PAGE';
         }
-        
+
         // 检查按钮状态
         const finalBtn = findConfirmButton();
         if (finalBtn && finalBtn.offsetParent !== null) {
             // 按钮还在，尝试最后一次点击
             log('⚠️ 超时但按钮仍在，尝试最后一次点击...', 'warning');
             try {
-                const isDisabled = finalBtn.disabled || 
+                const isDisabled = finalBtn.disabled ||
                                    finalBtn.classList.contains('disabled') ||
                                    finalBtn.style.pointerEvents === 'none';
                 const isLoading = finalBtn.querySelector('svg.animate-spin') !== null ||
                                  finalBtn.querySelector('.animate-spin') !== null;
-                
+
                 if (!isDisabled && !isLoading) {
                     await clickElement(finalBtn);
                     log('✓ 最后一次点击成功，继续等待确认', 'success');
@@ -2495,7 +2441,7 @@
     // 等待交易确认并关闭弹窗
     async function waitForConfirmationAndClose() {
         log('等待交易确认...', 'info');
-        
+
         // 等待 Close 按钮出现
         for (let i = 0; i < 60; i++) {
             const closeBtn = findCloseButton();
@@ -2508,7 +2454,7 @@
             }
             await sleep(1000);
         }
-        
+
         log('⚠️ 等待确认超时', 'warning');
         return false;
     }
@@ -2520,34 +2466,34 @@
      */
     async function executeSlippageCheckAndConfirm(tradeDirection) {
         if (!checkRunning()) return false;
-        
+
         // 短暂等待 UI 更新（价格会在滑点检测中等待）
         await sleep(CONFIG.UI_STABLE_WAIT);
-        
+
         // 滑点检测
         const slippageOk = await checkSlippageAndHandle();
         if (!slippageOk) {
             return 'SLIPPAGE_FAIL';
         }
-        
+
         if (!checkRunning()) return false;
-        
+
         // 点击 Confirm
         const confirmResult = await clickConfirm();
         if (!checkRunning()) return false;
-        
+
         if (confirmResult === 'REFRESH_PAGE') {
             return 'REFRESH_PAGE';
         }
-        
+
         if (confirmResult !== true) {
             return false;
         }
-        
+
         // 等待确认并关闭
         await waitForConfirmationAndClose();
         log(`✓ ${tradeDirection} 交易完成`, 'success');
-        
+
         return true;
     }
 
@@ -2562,9 +2508,9 @@
      */
     async function executeTargetToBaseFromDialog(amountText = 'MAX') {
         log(`========== ${targetToken} → ${baseToken} (${amountText}) ==========`, 'info');
-        
+
         if (!checkRunning()) return false;
-        
+
         // 1. 选择目标代币（第一个 Choose：弹窗默认显示 Saved，无需点击标签）
         // 选择了目标链时，第一个 Choose 仍从 Saved 选；第二个 Choose 在 Stable 中选目标代币+链
         if (targetChain && targetChain.trim()) {
@@ -2578,21 +2524,21 @@
         // 等待 Choose 按钮重新出现（弹窗关闭后）
         await waitForElement(() => findChooseButtons()[0], CONFIG.DIALOG_OPEN_TIMEOUT);
         await sleep(300); // UI 稳定等待（保持较短时间） // 短暂等待 UI 稳定
-        
+
         // 2. 点击金额按钮
         await clickAmount(amountText);
         if (!checkRunning()) return false;
-        
+
         // 3. 点击第二个 Choose
         if (!await clickSecondChoose()) {
             return false;
         }
         if (!checkRunning()) return false;
-        
+
         // 4. 根据基础币种类型选择标签，然后选择基础币种（第二个 Choose：需要点击链按钮）
         await selectTokenByType(baseToken, baseChain, { isBaseToken: true, requireChain: true });
         if (!checkRunning()) return false;
-        
+
         // 5. 执行滑点检测、Confirm 和等待确认
         const result = await executeSlippageCheckAndConfirm(`${targetToken} → ${baseToken}`);
         return result;
@@ -2605,33 +2551,33 @@
      */
     async function executeBaseToTargetFromDialog(amountText = 'MAX') {
         log(`========== ${baseToken} → ${targetToken} (${amountText}) ==========`, 'info');
-        
+
         if (!checkRunning()) return false;
-        
+
         // 1. 选择基础币种（第一个 Choose：弹窗默认显示 Saved，无需点击标签）
         await selectTokenByChain(baseToken, baseChain);
         if (!checkRunning()) return false;
         // 等待 Choose 按钮重新出现
         await waitForElement(() => findChooseButtons()[0], CONFIG.DIALOG_OPEN_TIMEOUT);
         await sleep(300); // UI 稳定等待（保持较短时间）
-        
+
         // 2. 点击金额按钮
         await clickAmount(amountText);
         if (!checkRunning()) return false;
-        
+
         // 3. 点击第二个 Choose
         if (!await clickSecondChoose()) {
             return false;
         }
         if (!checkRunning()) return false;
-        
+
         // 4. 根据目标代币类型选择标签，然后选择目标代币
-        await selectTokenByType(targetToken, targetChain, { 
-            isBaseToken: false, 
-            requireChain: !!(targetChain && targetChain.trim()) 
+        await selectTokenByType(targetToken, targetChain, {
+            isBaseToken: false,
+            requireChain: !!(targetChain && targetChain.trim())
         });
         if (!checkRunning()) return false;
-        
+
         // 5. 执行滑点检测、Confirm 和等待确认
         const result = await executeSlippageCheckAndConfirm(`${baseToken} → ${targetToken}`);
         return result;
@@ -2645,29 +2591,29 @@
     async function executeStableModeSell(detection) {
         // 找到目标代币且有对应链，执行卖出
         log(`📍 [稳定币] 检测到 ${targetToken} (${targetChain} 链)，执行 ${targetToken} → ${baseToken} (MAX)`, 'info');
-        
+
         // 1. 直接点击该行来选择目标代币
         if (detection.targetRowWithChain) {
             await clickElement(detection.targetRowWithChain);
             await randomSleep(CONFIG.waitAfterClick);
         }
         if (!checkRunning()) return false;
-        
+
         // 2. 选择 MAX 金额
         await clickAmount('MAX');
         if (!checkRunning()) return false;
-        
+
         // 3. 点击第二个 Choose（选择第一个代币后，只剩一个 Choose 按钮）
         if (!await clickSecondChoose()) {
             log('⚠️ 未找到第二个 Choose 按钮', 'warning');
             return false;
         }
         if (!checkRunning()) return false;
-        
+
         // 4. 根据基础币种类型选择标签，然后选择基础币种 + 对应链
         await selectTokenByType(baseToken, baseChain, { isBaseToken: true, requireChain: true });
         if (!checkRunning()) return false;
-        
+
         // 5. 执行滑点检测、Confirm 和等待确认
         return await executeSlippageCheckAndConfirm(`${targetToken} → ${baseToken}`);
     }
@@ -2680,7 +2626,7 @@
     async function executeStableModeBuy(amountText) {
         // 没有目标代币或没有对应链，用基础币种买入
         log(`📍 [稳定币] 无 ${targetToken} (${targetChain} 链)，执行 ${baseToken} → ${targetToken} (${amountText})`, 'info');
-        
+
         // 弹窗已经打开，直接在当前弹窗中选择基础币种，不需要重新打开
         // 1. 选择基础币种（第一个 Choose：弹窗已经打开）
         await selectTokenByChain(baseToken, baseChain);
@@ -2688,24 +2634,24 @@
         // 等待 Choose 按钮重新出现
         await waitForElement(() => findChooseButtons()[0], CONFIG.DIALOG_OPEN_TIMEOUT);
         await sleep(300); // UI 稳定等待（保持较短时间）
-        
+
         // 2. 点击金额按钮
         await clickAmount(amountText);
         if (!checkRunning()) return false;
-        
+
         // 3. 点击第二个 Choose
         if (!await clickSecondChoose()) {
             return false;
         }
         if (!checkRunning()) return false;
-        
+
         // 4. 根据目标代币类型选择标签，然后选择目标代币
-        await selectTokenByType(targetToken, targetChain, { 
-            isBaseToken: false, 
-            requireChain: !!(targetChain && targetChain.trim()) 
+        await selectTokenByType(targetToken, targetChain, {
+            isBaseToken: false,
+            requireChain: !!(targetChain && targetChain.trim())
         });
         if (!checkRunning()) return false;
-        
+
         // 5. 执行滑点检测、Confirm 和等待确认
         return await executeSlippageCheckAndConfirm(`${baseToken} → ${targetToken}`);
     }
@@ -2721,21 +2667,21 @@
         let hasTargetWithChain = false;
         let targetRowWithChain = null;
         let targetCount = 0;
-        
+
         for (const row of rows) {
             const text = row.textContent || '';
-            
+
             // 检测基础币种
             const baseTokenUpper = baseToken.toUpperCase();
             if (text.toUpperCase().includes(baseTokenUpper) && !matchesTargetToken(text)) {
                 hasBaseToken = true;
             }
-            
+
             // 检测目标代币
             if (matchesTargetToken(text) && !text.toUpperCase().includes(baseTokenUpper)) {
                 hasTarget = true;
                 targetCount++;
-                
+
                 // 检测是否有对应的链（用于稳定币模式）
                 if (targetChain && targetChain.trim()) {
                     const hasChain = hasChainInRow(row, targetChain);
@@ -2747,12 +2693,12 @@
                 }
             }
         }
-        
+
         // 调试信息：如果在稳定币模式下找到了目标代币但没有匹配到链
         if ((targetChain && targetChain.trim()) && hasTarget && !hasTargetWithChain) {
             log(`⚠️ 找到 ${targetCount} 个 ${targetToken}，但无 ${targetChain} 链匹配`, 'warning');
         }
-        
+
         return { hasBaseToken, hasTarget, hasTargetWithChain, targetRowWithChain, rows };
     };
 
@@ -2771,23 +2717,23 @@
         try { localStorage.removeItem('tradegenius_user_stopped'); } catch (e) {}
         stats.startTime = Date.now();
         UI.setRunning(true);
-        
+
         // 初始化每日统计
         initDailyStats();
-        
+
         // 如果已达到限额，扩展目标（用户手动重启）
         if (stats.successfulSwaps >= todayTradeTarget) {
             extendDailyLimit();
         }
 
         log('🚀 自动交易启动！', 'success');
-        
+
         // 显示当前模式和设置
         const modeText = (targetChain && targetChain.trim()) ? `稳定币模式 (${targetToken} 在 Stable)` : `普通模式 (${targetToken} 在 Saved)`;
         log(`📋 ${modeText}`, 'info');
         log(`📋 ${baseToken}链: ${baseChain} | 目标链: ${targetChain}`, 'info');
         log(`速率: ${speedMultiplier}x`, 'info');
-        
+
         if (enableDailyLimit) {
             log(`📊 今日目标: ${todayTradeTarget} 笔 | 已完成: ${stats.successfulSwaps} 笔`, 'info');
         } else {
@@ -2803,24 +2749,24 @@
                     log('检测到停止信号，退出循环', 'info');
                     break;
                 }
-                
+
                 // 检查页面状态是否正确
                 if (!isOnTradePage()) {
                     log('⚠️ 页面 URL 不正确，正在导航到交易页面...', 'warning');
                     navigateToTradePage();
                     return;
                 }
-                
+
                 // 检查每日限额
                 if (checkDailyLimit()) {
                     break;
                 }
-                
+
                 // 检查交易额限制（每 5 笔检查一次）
                 if (await checkVolumeLimit()) {
                     break;
                 }
-                
+
                 // 检查连续失败 - 3 次就刷新页面（若用户已停止则不再刷新重启）
                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
                     log('⚠️ 连续失败 3 次，等待 5 秒后刷新页面...', 'warning');
@@ -2829,8 +2775,8 @@
                     refreshAndRestart();
                     return;
                 }
-                
-                const progressText = enableDailyLimit 
+
+                const progressText = enableDailyLimit
                     ? `第 ${stats.successfulSwaps + 1}/${todayTradeTarget} 笔`
                     : `第 ${stats.successfulSwaps + 1} 笔 (无限制)`;
                 log(`\n========== ${progressText} ==========`, 'info');
@@ -2859,20 +2805,20 @@
                     await sleep(CONFIG.RETRY_WAIT);
                     continue;
                 }
-                
+
                 log('点击第一个 Choose 按钮', 'info');
                 await clickElement(chooseBtns[0]);
-                
+
                 // 等待弹窗打开（最多 8 秒）
                 const firstDialogOpened = await waitForDialogOpen(CONFIG.FIRST_DIALOG_OPEN_TIMEOUT);
-                
+
                 if (!firstDialogOpened) {
                     log('⚠️ 弹窗未打开，重试...', 'warning');
                     consecutiveFailures++;
                     await sleep(CONFIG.RETRY_WAIT);
                     continue;
                 }
-                
+
                 // 弹窗打开后，等待代币列表加载（固定延迟）
                 await fixedRandomSleep([800, 1200]);
                 if (!checkRunning()) break;
@@ -2880,7 +2826,7 @@
                 // 检测可用代币，决定交易方向
                 let success = false;
                 const amountText = selectAmount(); // 25%, 50%, MAX 随机
-                
+
                 if (targetChain && targetChain.trim()) {
                     // 【稳定币模式】复用 executeStableModeSell / executeStableModeBuy，与上文两个函数保持一致
                     log(`[稳定币模式] 检测可用代币...`, 'info');
@@ -2899,12 +2845,12 @@
                 } else {
                     // 【普通模式】目标代币在 Saved 中（如 KOGE）
                     log(`[普通模式] 检测可用代币...`, 'info');
-                    
+
                     // 使用固定延迟等待代币列表刷新
                     await fixedRandomSleep(CONFIG.TOKEN_LIST_WAIT);
                     if (!checkRunning()) break;
                     const { hasBaseToken, hasTarget } = detectAvailableToken();
-                    
+
                     if (hasTarget) {
                         // 有目标代币，卖出
                         log(`📍 [普通] 检测到 ${targetToken}，执行 ${targetToken} → ${baseToken} (MAX)`, 'info');
@@ -2918,7 +2864,7 @@
                         log(`⚠️ 未检测到 ${baseToken}/${targetToken}，尝试 Saved 标签...`, 'warning');
                         await clickSaved();
                         await sleep(CONFIG.UI_STABLE_WAIT);
-                        
+
                         const saved = detectAvailableToken();
                         if (saved.hasTarget) {
                             log(`📍 Saved 中检测到 ${targetToken}，执行 ${targetToken} → ${baseToken} (MAX)`, 'info');
@@ -2930,7 +2876,7 @@
                             log('❌ 未找到可交易的代币', 'error');
                             const dialog = getDialog();
                             if (dialog && dialog.getAttribute('role') === 'dialog') {
-                                const closeX = dialog.querySelector('button[aria-label="Close"]') || 
+                                const closeX = dialog.querySelector('button[aria-label="Close"]') ||
                                               dialog.querySelector('button:has(svg)');
                                 if (closeX) await clickElement(closeX);
                             }
@@ -2955,25 +2901,25 @@
                     refreshAndRestart();
                     return;
                 }
-                
+
                 if (success === true) {
                     stats.successfulSwaps++;
                     consecutiveFailures = 0;
                     saveStats();
-                    
+
                     if (enableDailyLimit) {
                         const remaining = todayTradeTarget - stats.successfulSwaps;
                         log(`✓ 交易完成！今日: ${stats.successfulSwaps}/${todayTradeTarget} (剩余 ${remaining})`, 'success');
                     } else {
                         log(`✓ 交易完成！今日已完成: ${stats.successfulSwaps} 笔`, 'success');
                     }
-                    
+
                     if (!checkRunning()) break;
-                    
+
                     // 随机等待
                     log('等待下一轮...', 'info');
                     await randomSleep(CONFIG.waitBetweenRounds);
-                    
+
                     if (!checkRunning()) break;
                 } else {
                     stats.failedSwaps++;
@@ -2987,7 +2933,7 @@
                 stats.failedSwaps++;
                 consecutiveFailures++;
                 saveStats();
-                
+
                 // 尝试关闭可能存在的弹窗
                 try {
                     const dialog = document.querySelector('[role="dialog"]');
@@ -3008,7 +2954,7 @@
                 } catch (e) {
                     // 忽略关闭弹窗的错误
                 }
-                
+
                 await sleep(CONFIG.CLOSE_DIALOG_WAIT);
             }
         }
@@ -3050,14 +2996,14 @@
 
         mount() {
             if (this.root) return;
-            
+
             // 加载所有保存的设置
             loadAllSettings();
-            
+
             // 加载面板大小设置
             const savedWidth = localStorage.getItem('tradeBotPanelWidth');
             if (savedWidth) this.panelWidth = parseInt(savedWidth) || 340;
-            
+
             // 加载缩放状态
             const savedCollapsed = localStorage.getItem('tradeBotPanelCollapsed');
             this.isCollapsed = savedCollapsed === 'true';
@@ -3081,17 +3027,17 @@
             // ---- UI: Header ----
             const header = document.createElement('div');
             header.style.cssText = `
-                padding: 12px 14px; 
+                padding: 12px 14px;
                 display: flex; align-items: center; gap: 10px;
                 background: linear-gradient(90deg, rgba(59,130,246,.1), transparent);
-                border-bottom: 1px solid rgba(255,255,255,.08); 
+                border-bottom: 1px solid rgba(255,255,255,.08);
                 cursor: move;
             `;
 
             const dot = document.createElement('span');
             dot.style.cssText = `
                 width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0;
-                background: #dc2626; 
+                background: #dc2626;
                 box-shadow: 0 0 8px rgba(220,38,38,.5);
             `;
 
@@ -3121,7 +3067,7 @@
             btn.textContent = '开始交易';
             btn.style.cssText = `
                 flex-shrink: 0; border: 0; cursor: pointer; color: white;
-                background: linear-gradient(135deg, #16a34a, #15803d); 
+                background: linear-gradient(135deg, #16a34a, #15803d);
                 padding: 8px 16px; border-radius: 8px;
                 font-weight: 700; font-size: 12px; transition: all .2s;
                 box-shadow: 0 2px 8px rgba(22,163,74,.3);
@@ -3166,35 +3112,35 @@
                 background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(59,130,246,.04));
                 border: 1px solid rgba(59,130,246,.15);
             `;
-            
+
             const speedTitle = document.createElement('div');
             speedTitle.textContent = '速率';
             speedTitle.style.cssText = `font-size: 9px; color: #93c5fd; margin-bottom: 5px; font-weight: 600; text-align: center;`;
             speedCard.appendChild(speedTitle);
-            
+
             const speedBtnsWrap = document.createElement('div');
             speedBtnsWrap.style.cssText = `display: flex; gap: 3px;`;
-            
+
             const speedBtnStyle = `
                 flex: 1; border: 0; cursor: pointer; padding: 4px 0; border-radius: 4px;
                 font-size: 10px; font-weight: 700; transition: all .15s;
             `;
-            
+
             const speed1x = document.createElement('button');
             speed1x.textContent = '1x';
             speed1x.style.cssText = speedBtnStyle + `background: #3b82f6; color: white;`;
-            
+
             const speed5x = document.createElement('button');
             speed5x.textContent = '5x';
             speed5x.style.cssText = speedBtnStyle + `background: rgba(255,255,255,.08); color: #94a3b8;`;
-            
+
             const speed10x = document.createElement('button');
             speed10x.textContent = '10x';
             speed10x.style.cssText = speedBtnStyle + `background: rgba(255,255,255,.08); color: #94a3b8;`;
-            
+
             const speedValues = [1, 5, 10];
             const speedButtons = [speed1x, speed5x, speed10x];
-            
+
             const updateSpeedButtons = (activeValue) => {
                 speedButtons.forEach((btn, idx) => {
                     const isActive = speedValues[idx] === activeValue;
@@ -3202,16 +3148,16 @@
                     btn.style.color = isActive ? 'white' : '#94a3b8';
                 });
             };
-            
+
             speed1x.onclick = () => { speedMultiplier = 1; updateSpeedButtons(1); log('速率: 1x (正常)', 'info'); saveAllSettings(); };
             speed5x.onclick = () => { speedMultiplier = 5; updateSpeedButtons(5); log('速率: 5x (快速)', 'info'); saveAllSettings(); };
             speed10x.onclick = () => { speedMultiplier = 10; updateSpeedButtons(10); log('速率: 10x (极速)', 'info'); saveAllSettings(); };
-            
+
             speedBtnsWrap.appendChild(speed1x);
             speedBtnsWrap.appendChild(speed5x);
             speedBtnsWrap.appendChild(speed10x);
             speedCard.appendChild(speedBtnsWrap);
-            
+
             // 根据保存的设置初始化速率按钮状态
             updateSpeedButtons(speedMultiplier);
 
@@ -3223,11 +3169,11 @@
                 background: linear-gradient(135deg, rgba(16,185,129,.12), rgba(16,185,129,.04));
                 border: 1px solid rgba(16,185,129,.15);
             `;
-            
+
             // 标题行（包含勾选框）
             const limitTitleRow = document.createElement('div');
             limitTitleRow.style.cssText = `display: flex; align-items: center; gap: 5px; margin-bottom: 5px;`;
-            
+
             const limitCheckbox = document.createElement('input');
             limitCheckbox.type = 'checkbox';
             limitCheckbox.checked = enableDailyLimit;
@@ -3235,54 +3181,54 @@
                 width: 12px; height: 12px; cursor: pointer; flex-shrink: 0;
                 accent-color: #10b981;
             `;
-            
+
             const limitTitle = document.createElement('span');
             limitTitle.textContent = '每日限额';
             limitTitle.style.cssText = `font-size: 9px; color: #6ee7b7; font-weight: 600;`;
-            
+
             limitTitleRow.appendChild(limitCheckbox);
             limitTitleRow.appendChild(limitTitle);
             limitCard.appendChild(limitTitleRow);
-            
+
             // 输入框行
             const limitInputRow = document.createElement('div');
             limitInputRow.style.cssText = `display: flex; align-items: center; gap: 4px;`;
-            
+
             const limitInputStyle = `
                 flex: 1; min-width: 0; max-width: 60px;
                 border: 1px solid rgba(255,255,255,.15); border-radius: 4px;
                 background: rgba(0,0,0,.25); color: #fff; padding: 5px 6px;
                 font-size: 12px; font-weight: 700; outline: none; text-align: center;
             `;
-            
+
             const limitMinInput = document.createElement('input');
             limitMinInput.type = 'number';
             limitMinInput.value = dailyLimitMin;
             limitMinInput.min = '1';
             limitMinInput.style.cssText = limitInputStyle;
             limitMinInput.disabled = !enableDailyLimit;
-            
+
             const limitSeparator = document.createElement('span');
             limitSeparator.textContent = '~';
             limitSeparator.style.cssText = `font-size: 11px; color: #6ee7b7;`;
-            
+
             const limitMaxInput = document.createElement('input');
             limitMaxInput.type = 'number';
             limitMaxInput.value = dailyLimitMax;
             limitMaxInput.min = '1';
             limitMaxInput.style.cssText = limitInputStyle;
             limitMaxInput.disabled = !enableDailyLimit;
-            
+
             const limitUnit = document.createElement('span');
             limitUnit.textContent = '笔';
             limitUnit.style.cssText = `font-size: 10px; color: #6ee7b7; opacity: .8;`;
-            
+
             limitInputRow.appendChild(limitMinInput);
             limitInputRow.appendChild(limitSeparator);
             limitInputRow.appendChild(limitMaxInput);
             limitInputRow.appendChild(limitUnit);
             limitCard.appendChild(limitInputRow);
-            
+
             // 事件绑定
             const updateLimitInputsState = () => {
                 const disabled = !limitCheckbox.checked;
@@ -3291,7 +3237,7 @@
                 limitMinInput.style.opacity = disabled ? '0.4' : '1';
                 limitMaxInput.style.opacity = disabled ? '0.4' : '1';
             };
-            
+
             limitCheckbox.onchange = () => {
                 enableDailyLimit = limitCheckbox.checked;
                 updateLimitInputsState();
@@ -3303,7 +3249,7 @@
                 }
                 saveAllSettings();
             };
-            
+
             limitMinInput.onchange = () => {
                 dailyLimitMin = Math.max(1, parseInt(limitMinInput.value) || 1);
                 limitMinInput.value = dailyLimitMin;
@@ -3314,7 +3260,7 @@
                 log(`限额范围: ${dailyLimitMin}~${dailyLimitMax} 笔`, 'info');
                 saveAllSettings();
             };
-            
+
             limitMaxInput.onchange = () => {
                 dailyLimitMax = Math.max(1, parseInt(limitMaxInput.value) || 1);
                 limitMaxInput.value = dailyLimitMax;
@@ -3325,7 +3271,7 @@
                 log(`限额范围: ${dailyLimitMin}~${dailyLimitMax} 笔`, 'info');
                 saveAllSettings();
             };
-            
+
             // 初始化状态
             updateLimitInputsState();
 
@@ -3340,60 +3286,60 @@
                 background: linear-gradient(135deg, rgba(168,85,247,.1), rgba(168,85,247,.03));
                 border: 1px solid rgba(168,85,247,.15);
             `;
-            
+
             const amountTitle = document.createElement('span');
             amountTitle.textContent = '随机金额';
             amountTitle.style.cssText = `font-size: 9px; color: #c4b5fd; font-weight: 600; flex-shrink: 0;`;
             amountRow.appendChild(amountTitle);
-            
+
             const amountBtnsWrap = document.createElement('div');
             amountBtnsWrap.style.cssText = `display: flex; gap: 6px; flex: 1;`;
-            
+
             const amountBtnStyle = `
                 flex: 1; border: 0; cursor: pointer; padding: 5px 8px; border-radius: 4px;
                 font-size: 11px; font-weight: 700; transition: all .15s;
             `;
-            
+
             const amountKeys = ['25%', '50%', 'MAX'];
             const amountButtons = {};
-            
+
             const updateAmountButtonStyle = (btn, key) => {
                 const isActive = amountOptions[key];
                 btn.style.background = isActive ? '#a855f7' : 'rgba(255,255,255,.08)';
                 btn.style.color = isActive ? 'white' : '#94a3b8';
                 btn.style.boxShadow = isActive ? '0 2px 8px rgba(168,85,247,.3)' : 'none';
             };
-            
+
             amountKeys.forEach(key => {
                 const btn = document.createElement('button');
                 btn.textContent = key;
                 btn.style.cssText = amountBtnStyle;
                 amountButtons[key] = btn;
-                
+
                 btn.onclick = () => {
                     // 切换选中状态
                     amountOptions[key] = !amountOptions[key];
-                    
+
                     // 确保至少有一个选项被选中
                     const enabledCount = Object.values(amountOptions).filter(v => v).length;
                     if (enabledCount === 0) {
                         amountOptions[key] = true; // 不允许全部取消
                         log('⚠️ 至少需要选择一个金额选项', 'warning');
                     }
-                    
+
                     updateAmountButtonStyle(btn, key);
-                    
+
                     // 显示当前选中的选项
                     const enabled = Object.keys(amountOptions).filter(k => amountOptions[k]);
                     log(`金额选项: ${enabled.join(', ')}`, 'info');
                     saveAllSettings();
                 };
-                
+
                 // 初始化按钮状态
                 updateAmountButtonStyle(btn, key);
                 amountBtnsWrap.appendChild(btn);
             });
-            
+
             amountRow.appendChild(amountBtnsWrap);
 
             // Controls: 交易对
@@ -3404,7 +3350,7 @@
                 background: rgba(0,0,0,.2);
                 border: 1px solid rgba(255,255,255,.05);
             `;
-            
+
             // 基础币种输入框
             const baseTokenInput = document.createElement('input');
             baseTokenInput.type = 'text';
@@ -3418,8 +3364,8 @@
                 text-transform: uppercase; text-align: center;
             `;
             baseTokenInput.onfocus = () => { baseTokenInput.style.borderColor = '#60a5fa'; baseTokenInput.style.background = 'rgba(59,130,246,.08)'; };
-            baseTokenInput.onblur = () => { 
-                baseTokenInput.style.borderColor = 'rgba(255,255,255,.12)'; 
+            baseTokenInput.onblur = () => {
+                baseTokenInput.style.borderColor = 'rgba(255,255,255,.12)';
                 baseTokenInput.style.background = 'rgba(0,0,0,.3)';
                 // 自动保存
                 const newBase = baseTokenInput.value.trim().toUpperCase();
@@ -3429,11 +3375,11 @@
                     saveAllSettings();
                 }
             };
-            
+
             const tokenArrow = document.createElement('span');
             tokenArrow.textContent = '⇄';
             tokenArrow.style.cssText = `font-size: 12px; color: #64748b; font-weight: 600; flex-shrink: 0;`;
-            
+
             // 目标代币输入框
             const tokenInput = document.createElement('input');
             tokenInput.type = 'text';
@@ -3447,8 +3393,8 @@
                 text-transform: uppercase; text-align: center;
             `;
             tokenInput.onfocus = () => { tokenInput.style.borderColor = '#fbbf24'; tokenInput.style.background = 'rgba(251,191,36,.08)'; };
-            tokenInput.onblur = () => { 
-                tokenInput.style.borderColor = 'rgba(255,255,255,.12)'; 
+            tokenInput.onblur = () => {
+                tokenInput.style.borderColor = 'rgba(255,255,255,.12)';
                 tokenInput.style.background = 'rgba(0,0,0,.3)';
                 // 自动保存
                 const newToken = tokenInput.value.trim().toUpperCase();
@@ -3458,7 +3404,7 @@
                     saveAllSettings();
                 }
             };
-            
+
             const tokenApplyBtn = document.createElement('button');
             tokenApplyBtn.textContent = 'OK';
             tokenApplyBtn.style.cssText = `
@@ -3479,7 +3425,7 @@
                     saveAllSettings();
                 }
             };
-            
+
             tokenRow.appendChild(baseTokenInput);
             tokenRow.appendChild(tokenArrow);
             tokenRow.appendChild(tokenInput);
@@ -3493,19 +3439,19 @@
                 background: rgba(0,0,0,.15);
                 border: 1px solid rgba(255,255,255,.05);
             `;
-            
+
             // 创建下拉菜单的样式
             const selectStyle = `
                 border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
                 background: rgba(0,0,0,.3); color: #e5e7eb; padding: 3px 6px;
                 font-size: 10px; font-weight: 600; outline: none; cursor: pointer;
             `;
-            
+
             // 基础币种链选择
             const baseChainLabel = document.createElement('span');
             baseChainLabel.textContent = '基础链';
             baseChainLabel.style.cssText = `font-size: 9px; color: #60a5fa; font-weight: 600;`;
-            
+
             const baseChainSelect = document.createElement('select');
             baseChainSelect.style.cssText = selectStyle;
             CHAIN_OPTIONS.forEach(chain => {
@@ -3520,12 +3466,12 @@
                 log(`${baseToken} 链: ${baseChain}`, 'info');
                 saveAllSettings();
             };
-            
+
             // 目标代币链选择
             const targetChainLabel = document.createElement('span');
             targetChainLabel.textContent = '目标链';
             targetChainLabel.style.cssText = `font-size: 9px; color: #fbbf24; font-weight: 600; margin-left: 6px;`;
-            
+
             const targetChainSelect = document.createElement('select');
             targetChainSelect.style.cssText = selectStyle;
             CHAIN_OPTIONS.forEach(chain => {
@@ -3540,12 +3486,12 @@
                 log(`目标代币链: ${targetChain}`, 'info');
                 saveAllSettings();
             };
-            
+
             chainRow.appendChild(baseChainLabel);
             chainRow.appendChild(baseChainSelect);
             chainRow.appendChild(targetChainLabel);
             chainRow.appendChild(targetChainSelect);
-            
+
             controlsWrap.appendChild(settingsRow);
             controlsWrap.appendChild(amountRow);
             controlsWrap.appendChild(tokenRow);
@@ -3622,16 +3568,16 @@
                 background: linear-gradient(135deg, rgba(251,191,36,.08), rgba(251,191,36,.02));
                 border: 1px solid rgba(251,191,36,.12);
             `;
-            
+
             const volumeCheckbox = document.createElement('input');
             volumeCheckbox.type = 'checkbox';
             volumeCheckbox.checked = enableVolumeLimit;
             volumeCheckbox.style.cssText = `width: 12px; height: 12px; cursor: pointer; accent-color: #fbbf24; flex-shrink: 0;`;
-            
+
             const volumeLabel = document.createElement('span');
             volumeLabel.textContent = '交易额达到';
             volumeLabel.style.cssText = `font-size: 10px; color: #fbbf24; font-weight: 600;`;
-            
+
             const volumeInput = document.createElement('input');
             volumeInput.type = 'number';
             volumeInput.value = volumeLimitTarget;
@@ -3643,16 +3589,16 @@
                 font-size: 11px; font-weight: 700; outline: none; text-align: center;
             `;
             volumeInput.disabled = !enableVolumeLimit;
-            
+
             const volumeUnit = document.createElement('span');
             volumeUnit.textContent = 'USD 停止';
             volumeUnit.style.cssText = `font-size: 9px; color: #fbbf24; opacity: .7;`;
-            
+
             const updateVolumeInputState = () => {
                 volumeInput.disabled = !volumeCheckbox.checked;
                 volumeInput.style.opacity = volumeCheckbox.checked ? '1' : '0.4';
             };
-            
+
             volumeCheckbox.onchange = () => {
                 enableVolumeLimit = volumeCheckbox.checked;
                 updateVolumeInputState();
@@ -3663,21 +3609,21 @@
                 }
                 saveAllSettings();
             };
-            
+
             volumeInput.onchange = () => {
                 volumeLimitTarget = Math.max(1000, parseInt(volumeInput.value) || 100000);
                 volumeInput.value = volumeLimitTarget;
                 log(`交易额目标: $${volumeLimitTarget.toLocaleString()}`, 'info');
                 saveAllSettings();
             };
-            
+
             updateVolumeInputState();
-            
+
             volumeRow.appendChild(volumeCheckbox);
             volumeRow.appendChild(volumeLabel);
             volumeRow.appendChild(volumeInput);
             volumeRow.appendChild(volumeUnit);
-            
+
             controlsWrap.appendChild(volumeRow);
 
             // Controls: 滑点保护
@@ -3688,16 +3634,16 @@
                 background: linear-gradient(135deg, rgba(239,68,68,.08), rgba(239,68,68,.02));
                 border: 1px solid rgba(239,68,68,.12);
             `;
-            
+
             const slippageCheckbox = document.createElement('input');
             slippageCheckbox.type = 'checkbox';
             slippageCheckbox.checked = enableSlippageProtection;
             slippageCheckbox.style.cssText = `width: 12px; height: 12px; cursor: pointer; accent-color: #ef4444; flex-shrink: 0;`;
-            
+
             const slippageLabel = document.createElement('span');
             slippageLabel.textContent = '滑点保护';
             slippageLabel.style.cssText = `font-size: 10px; color: #ef4444; font-weight: 600;`;
-            
+
             const slippageInput = document.createElement('input');
             slippageInput.type = 'number';
             slippageInput.value = maxSlippagePercent;
@@ -3710,20 +3656,20 @@
                 font-size: 12px; font-weight: 700; outline: none; text-align: center;
             `;
             slippageInput.disabled = !enableSlippageProtection;
-            
+
             const slippageUnit = document.createElement('span');
             slippageUnit.textContent = '% 以内';
             slippageUnit.style.cssText = `font-size: 9px; color: #ef4444; opacity: .7;`;
-            
+
             const slippageHint = document.createElement('span');
             slippageHint.textContent = '超过则刷新';
             slippageHint.style.cssText = `font-size: 8px; color: #ef4444; opacity: .5; margin-left: auto;`;
-            
+
             const updateSlippageInputState = () => {
                 slippageInput.disabled = !slippageCheckbox.checked;
                 slippageInput.style.opacity = slippageCheckbox.checked ? '1' : '0.4';
             };
-            
+
             slippageCheckbox.onchange = () => {
                 enableSlippageProtection = slippageCheckbox.checked;
                 updateSlippageInputState();
@@ -3734,22 +3680,22 @@
                 }
                 saveAllSettings();
             };
-            
+
             slippageInput.onchange = () => {
                 maxSlippagePercent = Math.max(0.01, Math.min(2, parseFloat(slippageInput.value) || 0.05));
                 slippageInput.value = maxSlippagePercent;
                 log(`滑点阈值: ${maxSlippagePercent}% (万分之${Math.round(maxSlippagePercent * 100)})`, 'info');
                 saveAllSettings();
             };
-            
+
             updateSlippageInputState();
-            
+
             slippageRow.appendChild(slippageCheckbox);
             slippageRow.appendChild(slippageLabel);
             slippageRow.appendChild(slippageInput);
             slippageRow.appendChild(slippageUnit);
             slippageRow.appendChild(slippageHint);
-            
+
             controlsWrap.appendChild(slippageRow);
 
             // ---- UI: 新号一键部署（独立功能，与交易逻辑无关） ----
@@ -3814,18 +3760,18 @@
             // ---- UI: Log ----
             const logWrap = document.createElement('div');
             logWrap.style.cssText = `margin-top: 4px;`;
-            
+
             // 日志头部（包含复制按钮）
             const logHeader = document.createElement('div');
             logHeader.style.cssText = `
                 display: flex; justify-content: space-between; align-items: center;
                 margin-bottom: 6px; padding: 0 2px;
             `;
-            
+
             const logTitle = document.createElement('span');
             logTitle.textContent = '运行日志';
             logTitle.style.cssText = `font-size: 10px; font-weight: 600; color: #94a3b8;`;
-            
+
             const copyBtn = document.createElement('button');
             copyBtn.textContent = '复制';
             copyBtn.style.cssText = `
@@ -3852,7 +3798,7 @@
                     setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
                 });
             };
-            
+
             logHeader.appendChild(logTitle);
             logHeader.appendChild(copyBtn);
 
@@ -3890,10 +3836,10 @@
 
             // 绑定按钮事件
             btn.addEventListener('click', () => this.toggle());
-            
+
             // 缩放按钮事件
             collapseBtn.addEventListener('click', () => this.toggleCollapse());
-            
+
             // 应用初始缩放状态
             if (this.isCollapsed) {
                 this.applyCollapseState(true);
@@ -3901,7 +3847,7 @@
 
             // 使面板可拖拽
             this.makeDraggable(header, root);
-            
+
             // 监听面板大小变化并保存
             const resizeObserver = new ResizeObserver(entries => {
                 for (const entry of entries) {
@@ -3919,14 +3865,14 @@
 
         makeDraggable(header, panel) {
             let isDragging = false, currentX, currentY, initialX, initialY;
-            
+
             header.addEventListener('mousedown', (e) => {
                 if (e.target.tagName === 'BUTTON') return;
                 isDragging = true;
                 initialX = e.clientX - panel.offsetLeft;
                 initialY = e.clientY - panel.offsetTop;
             });
-            
+
             document.addEventListener('mousemove', (e) => {
                 if (!isDragging) return;
                 e.preventDefault();
@@ -3936,7 +3882,7 @@
                 panel.style.top = currentY + 'px';
                 panel.style.right = 'auto';
             });
-            
+
             document.addEventListener('mouseup', () => { isDragging = false; });
         },
 
@@ -3964,7 +3910,7 @@
 
         applyCollapseState(collapsed) {
             if (!this.body || !this.collapseBtn || !this.root) return;
-            
+
             if (collapsed) {
                 // 收起状态 - 强制重置高度
                 this.body.style.display = 'none';
@@ -3994,7 +3940,7 @@
         // 等待页面加载完成
         const startUp = () => {
             UI.mount();
-            
+
             // 检查是否需要自动重启（刷新页面后）；若用户曾点击停止则不再自动开始
             try {
                 if (localStorage.getItem('tradegenius_user_stopped') === 'true') {
@@ -4017,7 +3963,7 @@
                 }
             } catch (e) {}
         };
-        
+
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(startUp, 1000);
